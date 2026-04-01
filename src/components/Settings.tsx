@@ -392,13 +392,13 @@ function Toggle({
       <span className="text-xs text-base-text">{label}</span>
       <button
         onClick={() => onChange(!checked)}
-        className={`w-8 h-4 rounded-full transition-colors relative ${
+        className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 ${
           checked ? "bg-accent-green" : "bg-base-border"
         }`}
       >
         <span
-          className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${
-            checked ? "translate-x-4" : "translate-x-0.5"
+          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+            checked ? "translate-x-4" : "translate-x-0"
           }`}
         />
       </button>

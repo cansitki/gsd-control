@@ -280,12 +280,12 @@ function Setup() {
           <label className="flex items-center gap-2 cursor-pointer">
             <button
               onClick={() => { setUseCoder(!useCoder); setConnectionOk(false); }}
-              className={`w-8 h-4 rounded-full transition-colors relative ${
+              className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 ${
                 useCoder ? "bg-accent-green" : "bg-base-border"
               }`}
             >
-              <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${
-                useCoder ? "translate-x-4" : "translate-x-0.5"
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                useCoder ? "translate-x-4" : "translate-x-0"
               }`} />
             </button>
             <span className="text-[11px] text-base-text">Using Coder workspaces</span>
