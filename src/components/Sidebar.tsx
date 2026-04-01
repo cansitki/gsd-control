@@ -257,6 +257,85 @@ function UploadModal({
   );
 }
 
+function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
+  const workspaces = useAppStore((s) => s.workspaces);
+  const [wsName, setWsName] = useState("");
+  const [wsDisplay, setWsDisplay] = useState("");
+  const [status, setStatus] = useState("");
+  const [testing, setTesting] = useState(false);
+
+  const handleAdd = async () => {
+    const name = wsName.trim();
+    if (!name) { setStatus("Workspace name required"); return; }
+    if (workspaces.some((w) => w.coderName === name)) { setStatus("Workspace already exists"); return; }
+
+    setTesting(true);
+    setStatus("Testing connection...");
+    try {
+      const result = await invoke<{ connected: boolean; error: string | null }>(
+        "test_workspace",
+        { workspace: name }
+      );
+      if (!result.connected) {
+        setStatus(result.error || "Workspace unreachable");
+        setTesting(false);
+        return;
+      }
+    } catch {
+      // Can't test — add anyway
+    }
+
+    // Add workspace with a dummy project so it appears (addProject creates ws if needed)
+    // Actually just create the workspace entry directly
+    const store = useAppStore.getState();
+    useAppStore.setState({
+      workspaces: [
+        ...store.workspaces,
+        { coderName: name, displayName: wsDisplay.trim() || name, projects: [] },
+      ],
+    });
+
+    setStatus("");
+    setTesting(false);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-base-surface border border-base-border rounded-lg p-5 w-80 shadow-xl">
+        <h3 className="text-xs font-bold text-base-text mb-4">Add Workspace</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-[10px] text-base-muted mb-1">Workspace Name (Coder)</label>
+            <input type="text" value={wsName} onChange={(e) => setWsName(e.target.value)}
+              placeholder="e.g. dev-server"
+              className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none"
+              autoFocus onKeyDown={(e) => e.key === "Enter" && handleAdd()} />
+          </div>
+          <div>
+            <label className="block text-[10px] text-base-muted mb-1">Display Name (optional)</label>
+            <input type="text" value={wsDisplay} onChange={(e) => setWsDisplay(e.target.value)}
+              placeholder={wsName || "e.g. My Server"}
+              className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none"
+              onKeyDown={(e) => e.key === "Enter" && handleAdd()} />
+          </div>
+          {status && <p className="text-[10px] text-accent-red">{status}</p>}
+          <div className="flex gap-2 justify-end pt-1">
+            <button onClick={onClose}
+              className="text-[10px] px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors">
+              Cancel
+            </button>
+            <button onClick={handleAdd} disabled={testing}
+              className="text-[10px] px-3 py-1.5 rounded bg-accent-orange text-white hover:opacity-90 transition-opacity disabled:opacity-50">
+              {testing ? "Testing..." : "Add"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Sidebar() {
   const workspaces = useAppStore((s) => s.workspaces);
   const sessions = useAppStore((s) => s.sessions);
@@ -274,6 +353,7 @@ function Sidebar() {
     coderName: string;
     displayName: string;
   } | null>(null);
+  const [addingWorkspace, setAddingWorkspace] = useState(false);
   const [uploadTarget, setUploadTarget] = useState<{
     workspace: string;
     project: { path: string; displayName: string };
@@ -348,18 +428,34 @@ function Sidebar() {
             <div key={ws.coderName} className="mb-3">
               <div className="px-3 py-1 text-xs font-semibold text-base-text flex items-center justify-between group">
                 <span>{ws.displayName}</span>
-                <button
-                  onClick={() =>
-                    setAddingTo({
-                      coderName: ws.coderName,
-                      displayName: ws.displayName,
-                    })
-                  }
-                  className="opacity-0 group-hover:opacity-100 text-base-muted hover:text-accent-orange transition-all w-4 h-4 flex items-center justify-center rounded hover:bg-base-bg"
-                  title="Add project"
-                >
-                  <span className="text-sm leading-none">+</span>
-                </button>
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                  <button
+                    onClick={() =>
+                      setAddingTo({
+                        coderName: ws.coderName,
+                        displayName: ws.displayName,
+                      })
+                    }
+                    className="text-base-muted hover:text-accent-orange w-4 h-4 flex items-center justify-center rounded hover:bg-base-bg"
+                    title="Add project"
+                  >
+                    <span className="text-sm leading-none">+</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm(`Remove workspace "${ws.displayName}" and all its projects from the sidebar?`)) {
+                        const store = useAppStore.getState();
+                        useAppStore.setState({
+                          workspaces: store.workspaces.filter((w) => w.coderName !== ws.coderName),
+                        });
+                      }
+                    }}
+                    className="text-base-muted hover:text-accent-red w-4 h-4 flex items-center justify-center rounded hover:bg-base-bg"
+                    title="Remove workspace"
+                  >
+                    <span className="text-[10px] leading-none">×</span>
+                  </button>
+                </div>
               </div>
               {ws.projects.map((proj) => {
                 const sessionId = `${ws.coderName}:${proj.path}`;
@@ -484,6 +580,14 @@ function Sidebar() {
               })}
             </div>
           ))}
+
+          {/* Add workspace button */}
+          <button
+            onClick={() => setAddingWorkspace(true)}
+            className="w-full text-left px-3 py-1.5 mt-1 rounded text-[10px] text-base-muted hover:text-accent-orange hover:bg-base-bg/50 transition-colors"
+          >
+            + Add Workspace
+          </button>
         </div>
       </aside>
 
@@ -493,6 +597,11 @@ function Sidebar() {
           workspace={addingTo}
           onClose={() => setAddingTo(null)}
         />
+      )}
+
+      {/* Add workspace modal */}
+      {addingWorkspace && (
+        <AddWorkspaceModal onClose={() => setAddingWorkspace(false)} />
       )}
 
       {/* Upload modal */}

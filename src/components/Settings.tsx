@@ -5,7 +5,7 @@ import { useAppStore } from "../stores/appStore";
 import { WATCHER_SCRIPT } from "../lib/watcherScript";
 import { escapeShellSingleQuote } from "../lib/shell";
 
-const APP_VERSION = "1.0.2";
+const APP_VERSION = "1.0.3";
 
 function Settings() {
   const config = useAppStore((s) => s.config);
@@ -15,20 +15,15 @@ function Settings() {
   const [testStatus, setTestStatus] = useState("");
   const [updateStatus, setUpdateStatus] = useState("");
   const [isChecking, setIsChecking] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
 
   const handleCheckForUpdates = async () => {
     setIsChecking(true);
     setUpdateStatus("Checking...");
     try {
-      const token = config.githubToken;
-      if (!token) {
-        setUpdateStatus("Add a GitHub token below first");
-        setIsChecking(false);
-        setTimeout(() => setUpdateStatus(""), 4000);
-        return;
-      }
+      const token = config.githubToken || "";
 
-      // Check via Rust-side updater (handles auth headers properly on redirects)
       const info = await invoke<{ available: boolean; version: string | null }>(
         "check_update",
         { githubToken: token }
@@ -43,14 +38,12 @@ function Settings() {
 
       setUpdateStatus(`v${info.version} available — downloading & installing...`);
 
-      // Try auto-install via Rust-side Tauri updater
       try {
         await invoke("install_update", { githubToken: token });
         setUpdateStatus("Installed! Restarting...");
         await relaunch();
-      } catch (installErr) {
-        // Auto-install failed (likely private repo redirect issue)
-        // Fall back to opening the release page
+      } catch {
+        // Auto-install failed — open release page
         setUpdateStatus(`v${info.version} available — opening download...`);
         const releaseUrl = `https://github.com/cansitki/gsd-control/releases/tag/v${info.version}`;
         invoke("open_url", { url: releaseUrl }).catch(() => {});
@@ -335,7 +328,7 @@ function Settings() {
             )}
           </div>
           <Field
-            label="GitHub Token (for private repo updates)"
+            label="GitHub Token (optional — for private repos)"
             value={config.githubToken}
             onChange={(v) => updateConfig({ githubToken: v })}
             placeholder="ghp_..."
@@ -345,6 +338,117 @@ function Settings() {
             Requires a token with <span className="text-base-muted">repo</span> scope.{" "}
             Create one at GitHub → Settings → Developer settings → Personal access tokens.
           </p>
+        </div>
+      </section>
+
+      {/* Debug */}
+      <section className="mb-8">
+        <h3 className="text-xs font-semibold text-accent-orange uppercase tracking-wider mb-3">
+          Debug
+        </h3>
+        <div className="space-y-3">
+          <Toggle
+            label="Debug Mode"
+            checked={debugMode}
+            onChange={(v) => {
+              setDebugMode(v);
+              if (v) {
+                // Capture console logs
+                const logs: string[] = [];
+                const ts = () => new Date().toLocaleTimeString();
+
+                // Capture existing state
+                const state = useAppStore.getState();
+                logs.push(`[${ts()}] App version: ${APP_VERSION}`);
+                logs.push(`[${ts()}] Connection: ${state.connection.status}`);
+                logs.push(`[${ts()}] SSH Profiles: ${state.config.sshProfiles.length}`);
+                logs.push(`[${ts()}] Active profile: ${state.config.activeProfileId}`);
+                logs.push(`[${ts()}] Workspaces: ${state.workspaces.map(w => w.coderName).join(", ") || "none"}`);
+                logs.push(`[${ts()}] Sessions: ${Object.keys(state.sessions).length}`);
+                logs.push(`[${ts()}] Terminal tabs: ${state.terminalTabs.length}`);
+                logs.push(`[${ts()}] Layout: ${state.terminalLayout}`);
+
+                // Override console to capture
+                const origLog = console.log;
+                const origWarn = console.warn;
+                const origError = console.error;
+                console.log = (...args: unknown[]) => { logs.push(`[${ts()}] LOG: ${args.map(String).join(" ")}`); origLog(...args); };
+                console.warn = (...args: unknown[]) => { logs.push(`[${ts()}] WARN: ${args.map(String).join(" ")}`); origWarn(...args); };
+                console.error = (...args: unknown[]) => { logs.push(`[${ts()}] ERROR: ${args.map(String).join(" ")}`); origError(...args); };
+
+                // Capture unhandled errors
+                const errorHandler = (e: ErrorEvent) => {
+                  logs.push(`[${ts()}] UNCAUGHT: ${e.message} at ${e.filename}:${e.lineno}`);
+                };
+                window.addEventListener("error", errorHandler);
+
+                // Capture promise rejections
+                const rejectionHandler = (e: PromiseRejectionEvent) => {
+                  logs.push(`[${ts()}] REJECTION: ${e.reason}`);
+                };
+                window.addEventListener("unhandledrejection", rejectionHandler);
+
+                setDebugLogs(logs);
+
+                // Poll for new logs
+                const interval = setInterval(() => {
+                  setDebugLogs([...logs]);
+                }, 1000);
+
+                // Store cleanup refs on window
+                (window as any).__debugCleanup = () => {
+                  console.log = origLog;
+                  console.warn = origWarn;
+                  console.error = origError;
+                  window.removeEventListener("error", errorHandler);
+                  window.removeEventListener("unhandledrejection", rejectionHandler);
+                  clearInterval(interval);
+                };
+              } else {
+                // Restore console
+                if ((window as any).__debugCleanup) {
+                  (window as any).__debugCleanup();
+                  delete (window as any).__debugCleanup;
+                }
+                setDebugLogs([]);
+              }
+            }}
+          />
+          {debugMode && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(debugLogs.join("\n")).catch(() => {});
+                  }}
+                  className="text-[10px] px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+                >
+                  📋 Copy Logs
+                </button>
+                <span className="text-[9px] text-base-muted">{debugLogs.length} entries</span>
+              </div>
+              <div className="bg-base-bg border border-base-border rounded p-2 max-h-[300px] overflow-y-auto font-mono">
+                {debugLogs.length === 0 ? (
+                  <p className="text-[9px] text-base-muted">No logs yet...</p>
+                ) : (
+                  debugLogs.map((log, i) => (
+                    <div
+                      key={i}
+                      className={`text-[9px] py-0.5 ${
+                        log.includes("ERROR") || log.includes("UNCAUGHT")
+                          ? "text-accent-red"
+                          : log.includes("WARN")
+                            ? "text-accent-amber"
+                            : "text-base-muted"
+                      }`}
+                    >
+                      {log}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </section>
     </div>
@@ -392,12 +496,12 @@ function Toggle({
       <span className="text-xs text-base-text">{label}</span>
       <button
         onClick={() => onChange(!checked)}
-        className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 ${
+        className={`w-10 h-6 rounded-full transition-colors relative flex-shrink-0 ${
           checked ? "bg-accent-green" : "bg-base-border"
         }`}
       >
         <span
-          className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+          className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 ${
             checked ? "translate-x-4" : "translate-x-0"
           }`}
         />

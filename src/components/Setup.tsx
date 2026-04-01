@@ -146,7 +146,7 @@ function Setup() {
         try {
           const output = await invoke<string>("exec_in_workspace", {
             workspace: ws.name,
-            command: "ls -d ~/*/ 2>/dev/null | while read d; do basename \"$d\"; done",
+            command: "for d in ~/*/; do [ -d \"$d/.gsd\" ] && basename \"$d\"; done 2>/dev/null",
           });
           const projects = output.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("."));
           results.push({ workspace: ws.name, projects });
@@ -300,8 +300,8 @@ function Setup() {
         <div className="pt-2 border-t border-base-border">
           <label className="flex items-center gap-2 cursor-pointer">
             <button onClick={() => { setUseCoder(!useCoder); setConnectionOk(false); }}
-              className={`w-9 h-5 rounded-full transition-colors relative flex-shrink-0 ${useCoder ? "bg-accent-green" : "bg-base-border"}`}>
-              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${useCoder ? "translate-x-4" : "translate-x-0"}`} />
+              className={`w-10 h-6 rounded-full transition-colors relative flex-shrink-0 ${useCoder ? "bg-accent-green" : "bg-base-border"}`}>
+              <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 ${useCoder ? "translate-x-4" : "translate-x-0"}`} />
             </button>
             <span className="text-[11px] text-base-text">Using Coder workspaces</span>
           </label>

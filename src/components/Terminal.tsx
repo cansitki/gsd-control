@@ -204,6 +204,9 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
         connectedRef.current = true;
         connectingRef.current = false;
 
+        // Clear any garbage escape sequences from tmux attach
+        term.reset();
+
         const el = containerRef.current;
         if (el && el.offsetWidth > 0 && el.offsetHeight > 0) {
           fitAddon.fit();
@@ -232,7 +235,12 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
         }
         return;
       }
-      const encoded = new TextEncoder().encode(data);
+      // Filter out terminal device attribute responses that shouldn't be sent to remote.
+      // These match: ESC[?...c (DA1 response) and ESC[>...c (DA2 response)
+      const filtered = data.replace(/\x1b\[\??[\d;]*c/g, "").replace(/\x1b\[>[\d;]*c/g, "");
+      if (!filtered) return;
+
+      const encoded = new TextEncoder().encode(filtered);
       invoke("terminal_write", {
         id: tabId,
         data: Array.from(encoded),

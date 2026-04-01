@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { useAppStore } from "../stores/appStore";
+import { useSSH } from "../hooks/useSSH";
 import SessionCard from "./SessionCard";
 import CostChart from "./CostChart";
 import { useCostHistory } from "../hooks/useCostHistory";
@@ -8,6 +10,8 @@ function Dashboard() {
   const events = useAppStore((s) => s.events);
   const connection = useAppStore((s) => s.connection);
   const costHistory = useCostHistory();
+  const { fetchGSDData } = useSSH();
+  const [refreshing, setRefreshing] = useState(false);
 
   const sessionList = Object.values(sessions);
   const activeSessions = sessionList.filter((s) => s.isRunning);
@@ -44,6 +48,22 @@ function Dashboard() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
+      {/* Header with refresh */}
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-bold text-base-text">Dashboard</h2>
+        <button
+          onClick={async () => {
+            setRefreshing(true);
+            await fetchGSDData();
+            setRefreshing(false);
+          }}
+          disabled={refreshing}
+          className="text-[10px] px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text hover:border-accent-orange/30 transition-colors disabled:opacity-50"
+        >
+          {refreshing ? "Refreshing..." : "↻ Refresh"}
+        </button>
+      </div>
+
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
