@@ -1,12 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { useAppStore } from "../stores/appStore";
 import { WATCHER_SCRIPT } from "../lib/watcherScript";
 import { escapeShellSingleQuote } from "../lib/shell";
 import type { SSHProfile, WorkspaceConfig } from "../lib/types";
-
-const APP_VERSION = "1.1.1";
 
 function Settings() {
   const config = useAppStore((s) => s.config);
@@ -24,6 +23,11 @@ function Settings() {
   const [addingProfile, setAddingProfile] = useState(false);
   const [addingWorkspace, setAddingWorkspace] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  const [appVersion, setAppVersion] = useState("...");
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => setAppVersion("unknown"));
+  }, []);
 
   // ── Connection ────────────────────────────────────────────────────────
 
@@ -487,7 +491,7 @@ function Settings() {
         <div className="space-y-3">
           <div className="flex items-center gap-3">
             <span className="text-xs text-base-muted">
-              Version: {APP_VERSION}
+              Version: {appVersion}
             </span>
             <button
               onClick={handleCheckForUpdates}

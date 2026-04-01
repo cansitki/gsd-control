@@ -48,10 +48,10 @@ npm run tauri dev
 ## Build
 
 ```bash
-npm run tauri build -- --target universal-apple-darwin
+npm run tauri build -- --target aarch64-apple-darwin
 ```
 
-Output: `src-tauri/target/universal-apple-darwin/release/bundle/dmg/`
+Output: `src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/`
 
 ## License
 
