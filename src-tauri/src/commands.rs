@@ -69,6 +69,24 @@ pub async fn ssh_status(ssh: State<'_, SharedSshManager>) -> Result<ConnectionSt
 }
 
 #[tauri::command]
+pub async fn test_workspace(
+    ssh: State<'_, SharedSshManager>,
+    workspace: String,
+) -> Result<ConnectionStatus, String> {
+    let manager = ssh.lock().await;
+    match manager.test_workspace(&workspace).await {
+        Ok(()) => Ok(ConnectionStatus {
+            connected: true,
+            error: None,
+        }),
+        Err(e) => Ok(ConnectionStatus {
+            connected: false,
+            error: Some(e),
+        }),
+    }
+}
+
+#[tauri::command]
 pub async fn ssh_exec(
     ssh: State<'_, SharedSshManager>,
     workspace: String,

@@ -97,32 +97,38 @@ impl SshManager {
             log::warn!("Direct SSH failed ({}), trying Coder alias...", stderr.trim());
         }
 
-        // Try Coder SSH alias
+        // If we have a Coder user configured, mark as tentatively connected
+        // Real connection test happens via test_workspace() with a workspace name
         if !self.config.coder_user.is_empty() {
-            let alias_host = format!("main.{}.{}.coder", self.config.coder_user, self.config.coder_user);
-            let output = Command::new("ssh")
-                .args([
-                    "-o", "StrictHostKeyChecking=no",
-                    "-o", "ConnectTimeout=15",
-                    "-o", "BatchMode=yes",
-                    &alias_host,
-                    "echo ok",
-                ])
-                .output()
-                .await
-                .map_err(|e| format!("SSH connect failed: {}", e))?;
-
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            if stdout.trim() == "ok" {
-                self.connected = true;
-                return Ok(());
-            }
-
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            return Err(format!("Connection failed: {}", stderr.trim()));
+            self.connected = true;
+            return Ok(());
         }
 
-        Err("No connection method available".to_string())
+        Err("Connection failed — check host, user, and key".to_string())
+    }
+
+    /// Test connection to a specific Coder workspace
+    pub async fn test_workspace(&self, workspace: &str) -> Result<(), String> {
+        let host = workspace_ssh_host(workspace, &self.config.coder_user);
+        let output = Command::new("ssh")
+            .args([
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "ConnectTimeout=15",
+                "-o", "BatchMode=yes",
+                &host,
+                "echo ok",
+            ])
+            .output()
+            .await
+            .map_err(|e| format!("SSH test failed: {}", e))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        if stdout.trim() == "ok" {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            Err(format!("Workspace unreachable: {}", stderr.trim()))
+        }
     }
 
     /// Run a command inside a workspace via its direct SSH alias

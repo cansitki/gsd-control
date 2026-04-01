@@ -30,6 +30,7 @@ pub fn run() {
             commands::ssh_connect,
             commands::ssh_disconnect,
             commands::ssh_status,
+            commands::test_workspace,
             commands::ssh_exec,
             commands::list_workspaces,
             commands::discover_projects,
