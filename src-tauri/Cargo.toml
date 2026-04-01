@@ -1,0 +1,33 @@
+[package]
+name = "gsd-control"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+name = "gsd_control_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+regex = "1"
+reqwest = { version = "0.12", features = ["json"] }
+log = "0.4"
+env_logger = "0.11"
+thiserror = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+tauri-plugin-stronghold = "2"
+open = "5"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
