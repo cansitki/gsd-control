@@ -56,7 +56,7 @@ export interface SSHConnection {
   host: string;
   user: string;
   keyPath: string;
-  status: "disconnected" | "connecting" | "connected" | "error";
+  status: "disconnected" | "connecting" | "connected" | "error" | "reconnecting";
   error: string | null;
 }
 

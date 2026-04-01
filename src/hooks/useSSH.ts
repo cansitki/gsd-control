@@ -4,6 +4,10 @@ import { useAppStore, createEmptySession } from "../stores/appStore";
 import type { GSDStatus, TmuxSessionInfo } from "../lib/types";
 import { emptyStatus } from "../lib/logParser";
 
+// Retry backoff delays in ms: immediate, 2s, 5s
+const RETRY_DELAYS = [0, 2000, 5000];
+const MAX_RETRY_ATTEMPTS = 3;
+
 // Python script that runs on the workspace and outputs JSON with all GSD data
 const GSD_FETCH_SCRIPT = `
 import json, os, sys, glob
@@ -196,19 +200,66 @@ export function useSSH() {
   const setWorkspaceHealth = useAppStore((s) => s.setWorkspaceHealth);
   const hasHydrated = useAppStore((s) => s._hasHydrated);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectingRef = useRef(false);
+  const connectAttemptRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref to break circular dependency between connect ↔ scheduleRetry
+  const connectFnRef = useRef<(opts?: { isRetry?: boolean }) => Promise<boolean>>(
+    async () => false
+  );
 
-  const connect = useCallback(async () => {
+  // Schedule a retry with exponential backoff, or give up after MAX_RETRY_ATTEMPTS
+  const scheduleRetry = useCallback((errorMsg: string): false => {
+    const nextAttempt = connectAttemptRef.current + 1;
+    if (nextAttempt >= MAX_RETRY_ATTEMPTS) {
+      console.error(`SSH connect: giving up after ${MAX_RETRY_ATTEMPTS} attempts`);
+      setConnectionStatus("error", errorMsg);
+      connectAttemptRef.current = 0;
+      return false;
+    }
+
+    connectAttemptRef.current = nextAttempt;
+    const delay = RETRY_DELAYS[nextAttempt] ?? RETRY_DELAYS[RETRY_DELAYS.length - 1];
+    console.log(`SSH connect: scheduling retry ${nextAttempt + 1}/${MAX_RETRY_ATTEMPTS} in ${delay}ms`);
+    setConnectionStatus("reconnecting", errorMsg);
+
+    retryTimerRef.current = setTimeout(() => {
+      retryTimerRef.current = null;
+      // Use ref to get latest connect — avoids stale closure
+      connectFnRef.current({ isRetry: true });
+    }, delay);
+
+    return false;
+  }, [setConnectionStatus]);
+
+  const connect = useCallback(async (opts?: { isRetry?: boolean }) => {
+    // Guard against concurrent connect attempts (retry vs manual reconnect race)
+    if (connectingRef.current) {
+      console.log("SSH connect: skipped — already in progress");
+      return false;
+    }
+    connectingRef.current = true;
+
+    // Reset attempt counter on fresh (non-retry) connect
+    if (!opts?.isRetry) {
+      connectAttemptRef.current = 0;
+    }
+
     // Read current state directly — React closures may be stale during hydration
     const currentConfig = useAppStore.getState().config;
     const profile = currentConfig.sshProfiles.find((p) => p.id === currentConfig.activeProfileId);
     if (!profile) {
       console.error("SSH connect: no profile configured (activeProfileId:", currentConfig.activeProfileId, ", profiles:", currentConfig.sshProfiles.length, ")");
       setConnectionStatus("error", "No SSH profile configured");
+      connectingRef.current = false;
       return false;
     }
 
-    console.log("SSH connect: attempting with profile", profile.name, "→", profile.coderUser, "@", profile.host || "(coder alias)");
-    setConnectionStatus("connecting");
+    const attempt = connectAttemptRef.current;
+    const statusLabel = attempt > 0 ? "reconnecting" : "connecting";
+    console.log(`SSH connect: attempt ${attempt + 1}/${MAX_RETRY_ATTEMPTS} with profile ${profile.name} → ${profile.coderUser}@${profile.host || "(coder alias)"}`);
+    setConnectionStatus(statusLabel as "connecting" | "reconnecting");
+
     try {
       // Secret retrieval may fail — proceed without key (Coder aliases don't need it)
       let keyPath = "";
@@ -236,21 +287,27 @@ export function useSSH() {
           coderUser: profile.coderUser,
         }
       );
+
       if (result.connected) {
         console.log("SSH connect: success ✓");
         setConnectionStatus("connected");
+        connectAttemptRef.current = 0;
+        connectingRef.current = false;
         return true;
       } else {
         console.error("SSH connect: failed —", result.error);
-        setConnectionStatus("error", result.error ?? "Connection failed");
-        return false;
+        connectingRef.current = false;
+        return scheduleRetry(result.error ?? "Connection failed");
       }
     } catch (e) {
       console.error("SSH connect: exception —", e);
-      setConnectionStatus("error", String(e));
-      return false;
+      connectingRef.current = false;
+      return scheduleRetry(String(e));
     }
-  }, [setConnectionStatus]);
+  }, [setConnectionStatus, scheduleRetry]);
+
+  // Keep the ref in sync with latest connect
+  connectFnRef.current = connect;
 
   const fetchGSDData = useCallback(async () => {
     for (const ws of workspaces) {
@@ -286,14 +343,10 @@ export function useSSH() {
             const details = remote.sessionDetails || [];
 
             // Determine actual status from session activity
-            // active = has a session with activity in last 60s
-            // idle = has a session but no recent activity
-            // off = no sessions at all
             const activeSession = details.find((s) => s.idle < 60);
             const isRunning = hasSessions;
             const isActive = !!activeSession;
 
-            // Determine phase from state + session info
             let phase = stateInfo.phase || null;
             if (hasSessions && !phase) {
               phase = isActive ? "running" : "idle";
@@ -309,7 +362,6 @@ export function useSSH() {
               phase,
             };
 
-            // Add token info — total across all units
             if (remote.totalTokens && remote.totalTokens.total > 0) {
               const t = remote.totalTokens;
               const readM = (t.cacheRead + t.input) / 1e6;
@@ -318,11 +370,10 @@ export function useSSH() {
               status.tokensWrite = `${writeK.toFixed(0)}K`;
             }
 
-            // Map sessionDetails into TmuxSessionInfo[]
             const tmuxSessions: TmuxSessionInfo[] = details.map((d) => ({
               name: d.name,
               idle: d.idle,
-              attached: false, // Python script doesn't track attached status yet
+              attached: false,
             }));
 
             setSession({
@@ -339,7 +390,6 @@ export function useSSH() {
               terminalPreview: remote.terminalPreview || [],
             });
           } else {
-            // No GSD data found — create empty session
             setSession(
               createEmptySession(ws.coderName, proj.path, proj.path, proj.displayName)
             );
@@ -350,7 +400,6 @@ export function useSSH() {
       } catch (e) {
         console.error(`Failed to fetch GSD data from ${ws.coderName}:`, e);
         setWorkspaceHealth(ws.coderName, 'error');
-        // Create empty sessions so they still show
         for (const proj of ws.projects) {
           setSession(
             createEmptySession(ws.coderName, proj.path, proj.path, proj.displayName)
@@ -362,6 +411,31 @@ export function useSSH() {
     setLastPollTime(Date.now());
   }, [workspaces, setSession, setWorkspaceHealth, setLastPollTime]);
 
+  // Check if all workspaces are unhealthy — triggers reconnect
+  const checkHealthAndReconnect = useCallback(async () => {
+    const health = useAppStore.getState().workspaceHealth;
+    const ws = useAppStore.getState().workspaces;
+    if (ws.length === 0) return;
+
+    const allUnhealthy = ws.every((w) => health[w.coderName] === 'error');
+    if (!allUnhealthy) return;
+
+    // All workspaces failed — verify with a direct health check before reconnecting
+    console.warn("SSH health: all workspaces unhealthy, running health check...");
+    try {
+      const result = await invoke<{ status: string; message: string }>("ssh_health_check");
+      if (result.status !== "ok") {
+        console.warn(`SSH health: check returned ${result.status} — ${result.message}, triggering reconnect`);
+        connect({ isRetry: true });
+      } else {
+        console.log("SSH health: check returned ok — workspace errors are transient");
+      }
+    } catch (e) {
+      console.warn("SSH health: health check invoke failed —", e, "— triggering reconnect");
+      connect({ isRetry: true });
+    }
+  }, [connect]);
+
   // Auto-connect + fetch on mount, then poll every 30 seconds
   // Wait for zustand hydration so config.sshProfiles is populated from localStorage
   useEffect(() => {
@@ -371,24 +445,30 @@ export function useSSH() {
       console.log("SSH init: hydration complete, attempting auto-connect...");
       const connected = await connect();
       if (connected) {
-        console.log("SSH init: connected, starting data fetch + 30s poll");
+        console.log("SSH init: connected, starting initial data fetch");
         await fetchGSDData();
-        // Poll for updates every 30 seconds
-        pollRef.current = setInterval(async () => {
-          try {
-            await fetchGSDData();
-          } catch (e) {
-            console.error("Poll error:", e);
-          }
-        }, 30_000);
       } else {
-        console.warn("SSH init: auto-connect failed — no polling started");
+        console.warn("SSH init: auto-connect failed — retries may be scheduled, polling will start regardless");
       }
+
+      // Always start polling — if connection recovers via retry, next poll picks up data
+      pollRef.current = setInterval(async () => {
+        const status = useAppStore.getState().connection.status;
+        if (status !== "connected") return; // Skip polling when not connected
+        try {
+          await fetchGSDData();
+          // After each poll, check if all workspaces are unhealthy
+          await checkHealthAndReconnect();
+        } catch (e) {
+          console.error("Poll error:", e);
+        }
+      }, 30_000);
     };
     init();
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
   }, [hasHydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
