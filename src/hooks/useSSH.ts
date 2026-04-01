@@ -189,7 +189,6 @@ function parseStateMd(state: string): Partial<GSDStatus> {
 }
 
 export function useSSH() {
-  const config = useAppStore((s) => s.config);
   const setConnectionStatus = useAppStore((s) => s.setConnectionStatus);
   const workspaces = useAppStore((s) => s.workspaces);
   const setSession = useAppStore((s) => s.setSession);
@@ -199,9 +198,11 @@ export function useSSH() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const connect = useCallback(async () => {
-    const profile = config.sshProfiles.find((p) => p.id === config.activeProfileId);
+    // Read current state directly — React closures may be stale during hydration
+    const currentConfig = useAppStore.getState().config;
+    const profile = currentConfig.sshProfiles.find((p) => p.id === currentConfig.activeProfileId);
     if (!profile) {
-      console.error("SSH connect: no profile configured (activeProfileId:", config.activeProfileId, ", profiles:", config.sshProfiles.length, ")");
+      console.error("SSH connect: no profile configured (activeProfileId:", currentConfig.activeProfileId, ", profiles:", currentConfig.sshProfiles.length, ")");
       setConnectionStatus("error", "No SSH profile configured");
       return false;
     }
@@ -245,7 +246,7 @@ export function useSSH() {
       setConnectionStatus("error", String(e));
       return false;
     }
-  }, [config.sshProfiles, config.activeProfileId, setConnectionStatus]);
+  }, [setConnectionStatus]);
 
   const fetchGSDData = useCallback(async () => {
     for (const ws of workspaces) {
