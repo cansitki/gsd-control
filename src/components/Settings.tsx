@@ -47,7 +47,7 @@ function Settings() {
             });
           }
         } catch (e) {
-          console.warn("Settings: Stronghold key retrieval failed, proceeding without key —", e);
+          console.warn("Settings: key retrieval failed, proceeding without key —", e);
         }
       }
       const result = await invoke<{ connected: boolean; error: string | null }>(

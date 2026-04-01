@@ -12,12 +12,14 @@
     "fs:default",
     "fs:allow-read",
     "fs:allow-write",
+    "fs:allow-mkdir",
+    "fs:allow-appdata-read",
+    "fs:allow-appdata-write",
     "core:event:default",
     "core:event:allow-emit",
     "core:event:allow-listen",
     "updater:default",
     "process:allow-restart",
-    "stronghold:default",
     "core:path:default"
   ]
 }

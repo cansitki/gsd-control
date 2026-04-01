@@ -75,7 +75,7 @@ export interface SSHProfile {
   host: string;
   user: string;
   coderUser: string;
-  // Key is stored in Stronghold vault, referenced by profile ID
+  // Key is stored in secrets vault, referenced by profile ID
   hasKey: boolean;
 }
 

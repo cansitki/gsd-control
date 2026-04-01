@@ -16,7 +16,7 @@ Track costs, tokens, session status, and terminal access across multiple project
 
 ## Security
 
-- SSH keys and tokens stored in [IOTA Stronghold](https://github.com/iotaledger/stronghold.rs) encrypted vault — never in plaintext on disk
+- SSH keys and tokens stored in an encrypted file in the app data directory — never in plaintext on disk
 - All shell command inputs sanitized against injection
 - No telemetry, no analytics, no data collection
 - Secrets excluded from localStorage persistence

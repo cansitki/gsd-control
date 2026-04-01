@@ -221,12 +221,12 @@ export const useAppStore = create<AppState>()(persist((set) => ({
       sshProfiles: state.config.sshProfiles,
       activeProfileId: state.config.activeProfileId,
       telegram: {
-        botToken: "", // stored in Stronghold
-        chatId: "", // stored in Stronghold
+        botToken: "", // stored in secrets vault
+        chatId: "", // stored in secrets vault
       },
       notifications: state.config.notifications,
       costAlertThreshold: state.config.costAlertThreshold,
-      githubToken: "", // stored in Stronghold
+      githubToken: "", // stored in secrets vault
     },
     workspaces: state.workspaces,
     currentView: state.currentView,

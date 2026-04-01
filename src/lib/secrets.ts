@@ -1,60 +1,86 @@
-import { Stronghold, Client } from "@tauri-apps/plugin-stronghold";
+import { readTextFile, writeTextFile, mkdir, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { appDataDir } from "@tauri-apps/api/path";
 
-let strongholdInstance: Stronghold | null = null;
-let clientInstance: Client | null = null;
+/**
+ * Simple encrypted secrets storage using Tauri fs plugin.
+ * Stores secrets as XOR-obfuscated JSON in appDataDir/secrets.json.
+ * Not cryptographically secure — just not plaintext on disk.
+ * Replaces the previous native secrets plugin which crashed on ARM64 macOS.
+ */
 
-const VAULT_PASSWORD = "gsd-control-vault";
-const CLIENT_NAME = "gsd-secrets";
+const SECRETS_FILE = "secrets.json";
+const OBFUSCATION_KEY = "gsd-control-vault-2024";
 
-async function getClient(): Promise<Client> {
-  if (clientInstance) return clientInstance;
+let cache: Record<string, string> | null = null;
 
-  const dir = await appDataDir();
-  const vaultPath = `${dir}/vault.hold`;
+function obfuscate(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  const key = new TextEncoder().encode(OBFUSCATION_KEY);
+  const result = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) {
+    result[i] = bytes[i] ^ key[i % key.length];
+  }
+  return btoa(String.fromCharCode(...result));
+}
 
-  strongholdInstance = await Stronghold.load(vaultPath, VAULT_PASSWORD);
+function deobfuscate(encoded: string): string {
+  const bytes = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
+  const key = new TextEncoder().encode(OBFUSCATION_KEY);
+  const result = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) {
+    result[i] = bytes[i] ^ key[i % key.length];
+  }
+  return new TextDecoder().decode(result);
+}
+
+async function loadSecrets(): Promise<Record<string, string>> {
+  if (cache) return cache;
 
   try {
-    clientInstance = await strongholdInstance.loadClient(CLIENT_NAME);
+    const content = await readTextFile(SECRETS_FILE, { baseDir: BaseDirectory.AppData });
+    const plain = deobfuscate(content);
+    cache = JSON.parse(plain);
+    console.log("Secrets: loaded from disk");
+    return cache!;
   } catch {
-    clientInstance = await strongholdInstance.createClient(CLIENT_NAME);
+    // File doesn't exist or is corrupted — start fresh
+    console.log("Secrets: starting fresh (no existing file or read error)");
+    cache = {};
+    return cache;
   }
+}
 
-  return clientInstance;
+async function saveSecrets(): Promise<void> {
+  if (!cache) return;
+
+  try {
+    // Ensure app data directory exists
+    const dir = await appDataDir();
+    await mkdir(dir, { recursive: true }).catch(() => {});
+
+    const plain = JSON.stringify(cache);
+    const encoded = obfuscate(plain);
+    await writeTextFile(SECRETS_FILE, encoded, { baseDir: BaseDirectory.AppData });
+  } catch (e) {
+    console.error("Secrets: failed to save —", e);
+  }
 }
 
 export async function setSecret(key: string, value: string): Promise<void> {
-  const client = await getClient();
-  const store = client.getStore();
-  const data = Array.from(new TextEncoder().encode(value));
-  await store.insert(key, data);
-  await strongholdInstance!.save();
+  const secrets = await loadSecrets();
+  secrets[key] = value;
+  await saveSecrets();
 }
 
 export async function getSecret(key: string): Promise<string> {
-  const client = await getClient();
-  const store = client.getStore();
-  try {
-    const data = await store.get(key);
-    if (data) {
-      return new TextDecoder().decode(new Uint8Array(data));
-    }
-  } catch {
-    // Key doesn't exist
-  }
-  return "";
+  const secrets = await loadSecrets();
+  return secrets[key] || "";
 }
 
 export async function removeSecret(key: string): Promise<void> {
-  const client = await getClient();
-  const store = client.getStore();
-  try {
-    await store.remove(key);
-    await strongholdInstance!.save();
-  } catch {
-    // Key didn't exist
-  }
+  const secrets = await loadSecrets();
+  delete secrets[key];
+  await saveSecrets();
 }
 
 // Keys for secrets stored in the vault

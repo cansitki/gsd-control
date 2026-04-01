@@ -87,6 +87,15 @@ pub async fn test_workspace(
 }
 
 #[tauri::command]
+pub async fn ssh_health_check(
+    ssh: State<'_, SharedSshManager>,
+    workspace: String,
+) -> Result<crate::ssh::HealthCheckResult, String> {
+    let manager = ssh.lock().await;
+    Ok(manager.health_check(&workspace).await)
+}
+
+#[tauri::command]
 pub async fn ssh_exec(
     ssh: State<'_, SharedSshManager>,
     workspace: String,

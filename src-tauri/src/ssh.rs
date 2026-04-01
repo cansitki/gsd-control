@@ -55,6 +55,14 @@ pub struct SshConfig {
     pub coder_user: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckResult {
+    /// "ok", "unreachable", or "error"
+    pub status: String,
+    /// Human-readable detail when status != "ok"
+    pub message: Option<String>,
+}
+
 impl Default for SshConfig {
     fn default() -> Self {
         Self {
@@ -139,6 +147,42 @@ impl SshManager {
         }
 
         Err("Connection failed — check host, user, and key".to_string())
+    }
+
+    /// Lightweight health check for a specific Coder workspace.
+    /// Uses a shorter ConnectTimeout=10 (vs 15 for test_workspace) and returns
+    /// a structured result the frontend can use for reconnect decisions.
+    pub async fn health_check(&self, workspace: &str) -> HealthCheckResult {
+        let host = workspace_ssh_host(workspace, &self.config.coder_user);
+        let result = ssh_command()
+            .args([
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "ConnectTimeout=10",
+                "-o", "BatchMode=yes",
+                &host,
+                "echo ok",
+            ])
+            .output()
+            .await;
+
+        match result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                if stdout.trim() == "ok" {
+                    HealthCheckResult { status: "ok".to_string(), message: None }
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                    HealthCheckResult {
+                        status: "unreachable".to_string(),
+                        message: Some(stderr.trim().to_string()),
+                    }
+                }
+            }
+            Err(e) => HealthCheckResult {
+                status: "error".to_string(),
+                message: Some(format!("SSH process failed: {}", e)),
+            },
+        }
     }
 
     /// Test connection to a specific Coder workspace

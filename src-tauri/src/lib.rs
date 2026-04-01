@@ -15,15 +15,6 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_stronghold::Builder::new(|password| {
-            // Use a key derivation function for the vault password
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-            let mut hasher = DefaultHasher::new();
-            password.hash(&mut hasher);
-            let hash = hasher.finish();
-            hash.to_le_bytes().to_vec()
-        }).build())
         .manage(ssh_manager)
         .manage(terminal_store)
         .invoke_handler(tauri::generate_handler![
@@ -31,6 +22,7 @@ pub fn run() {
             commands::ssh_disconnect,
             commands::ssh_status,
             commands::test_workspace,
+            commands::ssh_health_check,
             commands::ssh_exec,
             commands::list_workspaces,
             commands::discover_projects,

@@ -3,7 +3,7 @@ import { useAppStore } from "../stores/appStore";
 import { getSecret, setSecret, SECRET_KEYS } from "../lib/secrets";
 
 /**
- * Loads secrets from Stronghold vault on mount,
+ * Loads secrets from vault on mount,
  * syncs changes back to vault when config changes.
  */
 export function useSecrets() {

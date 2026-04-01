@@ -210,8 +210,7 @@ export function useSSH() {
     console.log("SSH connect: attempting with profile", profile.name, "→", profile.coderUser, "@", profile.host || "(coder alias)");
     setConnectionStatus("connecting");
     try {
-      // Write SSH key from vault to temp file if the profile has one
-      // Stronghold may fail on some builds — proceed without key (Coder aliases don't need it)
+      // Secret retrieval may fail — proceed without key (Coder aliases don't need it)
       let keyPath = "";
       if (profile.hasKey) {
         try {
@@ -224,7 +223,7 @@ export function useSSH() {
             });
           }
         } catch (e) {
-          console.warn("SSH connect: Stronghold key retrieval failed, proceeding without key —", e);
+          console.warn("SSH connect: key retrieval failed, proceeding without key —", e);
         }
       }
 

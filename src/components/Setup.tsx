@@ -189,7 +189,7 @@ function Setup() {
         try {
           const { setSecret, SECRET_KEYS } = await import("../lib/secrets");
           await setSecret(SECRET_KEYS.sshKey(id), keyContent);
-        } catch { /* Stronghold not ready */ }
+        } catch { /* secrets not ready */ }
       }
 
       updateConfig({
