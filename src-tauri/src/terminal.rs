@@ -35,7 +35,8 @@ pub async fn open_terminal(
     // Connect directly to the workspace via its SSH alias
     let ssh_host = crate::ssh::workspace_ssh_host(&workspace, &coder_user);
 
-    let mut child = Command::new("ssh")
+    let mut child = Command::new("/usr/bin/ssh")
+        .env("PATH", crate::ssh::shell_path())
         .args([
             "-tt",
             "-o", "StrictHostKeyChecking=no",
@@ -138,7 +139,8 @@ pub async fn open_terminal_tmux(
     // SSH in and attach to the tmux session
     // Set TERM so tmux can use terminal capabilities (clear, colors, etc.)
     let tmux_cmd = format!("TERM=xterm-256color tmux attach-session -t {}", tmux_session);
-    let mut child = Command::new("ssh")
+    let mut child = Command::new("/usr/bin/ssh")
+        .env("PATH", crate::ssh::shell_path())
         .args([
             "-tt",
             "-o", "StrictHostKeyChecking=no",

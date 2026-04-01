@@ -3,6 +3,42 @@ use tokio::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
+/// Get the user's full shell PATH — Tauri apps launched from Finder
+/// inherit a minimal PATH that won't include coder, homebrew, etc.
+pub fn shell_path() -> String {
+    // Try common locations where coder/homebrew binaries live
+    let default_path = std::env::var("PATH").unwrap_or_default();
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/unknown".to_string());
+
+    // Build a comprehensive PATH that covers all common install locations
+    let extra_paths = [
+        format!("{home}/.local/bin"),
+        format!("{home}/bin"),
+        "/opt/homebrew/bin".to_string(),
+        "/usr/local/bin".to_string(),
+        "/usr/bin".to_string(),
+        "/bin".to_string(),
+        "/usr/sbin".to_string(),
+        "/sbin".to_string(),
+    ];
+
+    let mut paths: Vec<String> = extra_paths.into_iter().collect();
+    // Append existing PATH entries that aren't already included
+    for p in default_path.split(':') {
+        if !p.is_empty() && !paths.contains(&p.to_string()) {
+            paths.push(p.to_string());
+        }
+    }
+    paths.join(":")
+}
+
+/// Create an SSH Command with the full user PATH set
+fn ssh_command() -> Command {
+    let mut cmd = Command::new("/usr/bin/ssh");
+    cmd.env("PATH", shell_path());
+    cmd
+}
+
 /// Maps Coder workspace names to their SSH alias hostnames.
 /// Uses the coder_user stored in SshConfig.
 pub fn workspace_ssh_host(coder_name: &str, coder_user: &str) -> String {
@@ -44,8 +80,6 @@ impl SshManager {
         self.config.host = host.to_string();
         self.config.user = user.to_string();
         self.config.key_path = key_path.to_string();
-        // Extract coder user from host if it follows pattern: main.<ws>.<user>.coder
-        // Otherwise keep existing coder_user
     }
 
     pub fn set_coder_user(&mut self, coder_user: &str) {
@@ -75,7 +109,7 @@ impl SshManager {
             direct_args.push(format!("{}@{}", self.config.user, self.config.host));
             direct_args.push("echo ok".to_string());
 
-            let output = Command::new("ssh")
+            let output = ssh_command()
                 .args(&direct_args)
                 .output()
                 .await
@@ -110,7 +144,7 @@ impl SshManager {
     /// Test connection to a specific Coder workspace
     pub async fn test_workspace(&self, workspace: &str) -> Result<(), String> {
         let host = workspace_ssh_host(workspace, &self.config.coder_user);
-        let output = Command::new("ssh")
+        let output = ssh_command()
             .args([
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "ConnectTimeout=15",
@@ -138,7 +172,7 @@ impl SshManager {
         command: &str,
     ) -> Result<String, String> {
         let host = workspace_ssh_host(workspace, &self.config.coder_user);
-        let output = Command::new("ssh")
+        let output = ssh_command()
             .args([
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "ConnectTimeout=15",
