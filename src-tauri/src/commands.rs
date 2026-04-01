@@ -527,11 +527,16 @@ pub async fn check_update(
     let repo = "cansitki/gsd-control"; // Public repo — updater endpoint matches
 
     let client = reqwest::Client::new();
-    let resp = client
+    let mut request = client
         .get(format!("https://api.github.com/repos/{}/releases/latest", repo))
-        .header("Authorization", format!("token {}", github_token))
         .header("Accept", "application/vnd.github.v3+json")
-        .header("User-Agent", "GSD-Control-Updater")
+        .header("User-Agent", "GSD-Control-Updater");
+
+    if !github_token.is_empty() {
+        request = request.header("Authorization", format!("token {}", github_token));
+    }
+
+    let resp = request
         .send()
         .await
         .map_err(|e| format!("Request failed: {}", e))?;

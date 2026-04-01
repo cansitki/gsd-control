@@ -11,8 +11,6 @@ function Settings() {
   const config = useAppStore((s) => s.config);
   const updateConfig = useAppStore((s) => s.updateConfig);
   const workspaces = useAppStore((s) => s.workspaces);
-  const debugEnabled = useAppStore((s) => s.debugEnabled);
-  const setDebugEnabled = useAppStore((s) => s.setDebugEnabled);
   const debugLogs = useAppStore((s) => s.debugLogs);
   const clearDebugLogs = useAppStore((s) => s.clearDebugLogs);
   const [deployStatus, setDeployStatus] = useState("");
@@ -343,61 +341,52 @@ function Settings() {
         </div>
       </section>
 
-      {/* Debug */}
+      {/* Debug Logs */}
       <section className="mb-8">
         <h3 className="text-xs font-semibold text-accent-orange uppercase tracking-wider mb-3">
-          Debug
+          Debug Logs
         </h3>
-        <div className="space-y-3">
-          <Toggle
-            label="Debug Mode"
-            checked={debugEnabled}
-            onChange={(v) => setDebugEnabled(v)}
-          />
-          {debugEnabled && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(debugLogs.join("\n")).catch(() => {});
-                  }}
-                  className="text-xs px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(debugLogs.join("\n")).catch(() => {});
+              }}
+              className="text-xs px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+            >
+              📋 Copy Logs
+            </button>
+            <button
+              onClick={clearDebugLogs}
+              className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
+            >
+              Clear
+            </button>
+            <span className="text-xs text-base-muted">{debugLogs.length} entries</span>
+          </div>
+          <div className="bg-base-bg border border-base-border rounded p-2 max-h-[300px] overflow-y-auto font-mono">
+            {debugLogs.length === 0 ? (
+              <p className="text-xs text-base-muted">No logs yet — logs are captured automatically.</p>
+            ) : (
+              debugLogs.slice(-200).map((log, i) => (
+                <div
+                  key={i}
+                  className={`text-xs py-0.5 ${
+                    log.includes("ERROR") || log.includes("UNCAUGHT") || log.includes("REJECTION")
+                      ? "text-accent-red"
+                      : log.includes("WARN")
+                        ? "text-accent-amber"
+                        : "text-base-muted"
+                  }`}
                 >
-                  📋 Copy Logs
-                </button>
-                <button
-                  onClick={clearDebugLogs}
-                  className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
-                >
-                  Clear
-                </button>
-                <span className="text-xs text-base-muted">{debugLogs.length} entries</span>
-              </div>
-              <div className="bg-base-bg border border-base-border rounded p-2 max-h-[300px] overflow-y-auto font-mono">
-                {debugLogs.length === 0 ? (
-                  <p className="text-xs text-base-muted">Logs are being captured in the background...</p>
-                ) : (
-                  debugLogs.slice(-200).map((log, i) => (
-                    <div
-                      key={i}
-                      className={`text-xs py-0.5 ${
-                        log.includes("ERROR") || log.includes("UNCAUGHT") || log.includes("REJECTION")
-                          ? "text-accent-red"
-                          : log.includes("WARN")
-                            ? "text-accent-amber"
-                            : "text-base-muted"
-                      }`}
-                    >
-                      {log}
-                    </div>
-                  ))
-                )}
-              </div>
-              <p className="text-xs text-base-muted/60">
-                Showing last 200 of {debugLogs.length} entries. Logs persist while navigating — max 5000 entries (~200 min).
-              </p>
-            </div>
-          )}
+                  {log}
+                </div>
+              ))
+            )}
+          </div>
+          <p className="text-xs text-base-muted/60">
+            Last 200 of {debugLogs.length}. Max 5000 entries (~200 min). Always running.
+          </p>
         </div>
       </section>
     </div>

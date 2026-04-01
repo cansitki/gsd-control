@@ -181,8 +181,8 @@ export const useAppStore = create<AppState>()(persist((set) => ({
       config: { ...state.config, ...updates },
     })),
 
-  // Debug — rolling log buffer, max 5000 entries (~200 min at 25 logs/min)
-  debugEnabled: false,
+  // Debug — always on, rolling log buffer
+  debugEnabled: true,
   debugLogs: [],
   setDebugEnabled: (enabled) => set({ debugEnabled: enabled }),
   addDebugLog: (log) =>
