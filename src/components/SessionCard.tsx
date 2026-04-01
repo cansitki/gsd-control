@@ -1,0 +1,245 @@
+import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import type { GSDSession } from "../lib/types";
+import { useAppStore } from "../stores/appStore";
+import { sanitizeShellArg } from "../lib/shell";
+
+interface Props {
+  session: GSDSession;
+}
+
+function SessionCard({ session }: Props) {
+  const { status, displayName, workspace, isRunning, project } = session;
+  const [launching, setLaunching] = useState(false);
+  const workspaces = useAppStore((s) => s.workspaces);
+  const addTerminalTab = useAppStore((s) => s.addTerminalTab);
+  const setCurrentView = useAppStore((s) => s.setCurrentView);
+
+  const wsConfig = workspaces.find((w) => w.displayName === workspace);
+  const coderName = wsConfig?.coderName ?? workspace;
+
+  const handleStartAuto = async () => {
+    setLaunching(true);
+    try {
+      await invoke("gsd_start_auto", {
+        workspace: coderName,
+        projectPath: project,
+        milestone: null,
+      });
+    } catch (e) {
+      console.error("Failed to start GSD:", e);
+    }
+    setLaunching(false);
+  };
+
+  const handleStop = async () => {
+    try {
+      await invoke("gsd_stop", {
+        workspace: coderName,
+        projectPath: project,
+      });
+    } catch (e) {
+      console.error("Failed to stop GSD:", e);
+    }
+  };
+
+  const handleAttachTmux = async () => {
+    try {
+      // List tmux sessions on this workspace
+      const sessions = await invoke<string[]>("list_tmux_sessions", {
+        workspace: coderName,
+      });
+
+      // Find sessions matching this specific project
+      const pname = sanitizeShellArg(project.split("/").pop() || project);
+      const pslug = sanitizeShellArg(project.replace(/\//g, "-"));
+      const matching = sessions.filter(
+        (s) =>
+          s === pname ||
+          s === pslug ||
+          s === `gsd-term-${pname}` ||
+          s === `gsd-term-${pslug}`
+      );
+
+      if (matching.length === 0) {
+        console.warn("No tmux sessions found for project:", project);
+        return;
+      }
+
+      // Use the first matching session
+      const tmuxSession = matching[0];
+      const tabId = `tmux-${Date.now()}`;
+
+      // Open terminal attached to the tmux session
+      await invoke("terminal_open_tmux", {
+        id: tabId,
+        workspace: coderName,
+        tmuxSession,
+      });
+
+      addTerminalTab({
+        id: tabId,
+        workspace: coderName,
+        project,
+        title: `${displayName} · tmux:${tmuxSession}`,
+        isActive: true,
+      });
+      setCurrentView("terminal");
+    } catch (e) {
+      console.error("Failed to attach tmux:", e);
+    }
+  };
+
+  return (
+    <div className="bg-base-surface border border-base-border rounded-lg p-4 hover:border-accent-orange/30 transition-colors">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span
+            className={`w-2 h-2 rounded-full ${
+              isRunning && status.autoMode
+                ? "bg-accent-green animate-pulse"
+                : isRunning
+                  ? "bg-accent-amber"
+                  : status.phase === "complete"
+                    ? "bg-accent-green"
+                    : "bg-base-muted/40"
+            }`}
+          />
+          <h3 className="text-sm font-semibold text-base-text">
+            {displayName}
+          </h3>
+        </div>
+        <span className="text-[10px] text-base-muted">{workspace}</span>
+      </div>
+
+      {/* Milestone */}
+      {status.milestone && (
+        <div className="mb-2">
+          <span className="text-[10px] text-base-muted">Milestone</span>
+          <div className="text-xs text-accent-blue font-medium">
+            {status.milestone}
+            {status.phase && (
+              <span
+                className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${
+                  status.phase === "complete"
+                    ? "bg-accent-green/10 text-accent-green"
+                    : status.phase === "planning" || status.phase === "evaluating-gates"
+                      ? "bg-accent-amber/10 text-accent-amber"
+                      : "bg-accent-blue/10 text-accent-blue"
+                }`}
+              >
+                {status.phase}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Progress */}
+      {status.sliceTotal != null && status.sliceTotal > 0 && (
+        <div className="mb-2">
+          <div className="flex items-center justify-between text-[10px] text-base-muted mb-1">
+            <span>
+              {status.sliceCurrent}/{status.sliceTotal} milestones done
+            </span>
+          </div>
+          <div className="h-1 bg-base-bg rounded-full overflow-hidden">
+            <div
+              className="h-full bg-accent-orange rounded-full transition-all duration-500"
+              style={{
+                width: `${((status.sliceCurrent ?? 0) / status.sliceTotal) * 100}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Metrics */}
+      <div className="flex items-center gap-3 text-[10px] flex-wrap">
+        {status.cost != null && status.cost > 0 && (
+          <span className="text-accent-amber font-medium">
+            ${status.cost.toFixed(2)}
+          </span>
+        )}
+        {status.tokensRead && (
+          <span className="text-base-muted">
+            R{status.tokensRead} W{status.tokensWrite}
+          </span>
+        )}
+        {status.cacheHitRate != null && (
+          <span className="text-base-muted">{status.cacheHitRate}%hit</span>
+        )}
+        {status.gitBranch && (
+          <span className="text-base-muted">⎇ {status.gitBranch}</span>
+        )}
+      </div>
+
+      {/* Next action */}
+      {status.lastTaskDescription && (
+        <div className="mt-2 text-[10px] text-base-muted truncate">
+          {status.lastTaskDescription}
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="mt-3 flex items-center gap-2">
+        {isRunning && status.autoMode ? (
+          <>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-green/10 text-accent-green font-medium">
+              AUTO
+            </span>
+            <button
+              onClick={handleAttachTmux}
+              className="text-[10px] px-2 py-1 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+            >
+              Attach
+            </button>
+            <button
+              onClick={handleStop}
+              className="ml-auto text-[10px] px-2 py-1 rounded border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-colors"
+            >
+              Stop
+            </button>
+          </>
+        ) : isRunning ? (
+          <>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-amber/10 text-accent-amber font-medium">
+              IDLE
+            </span>
+            <button
+              onClick={handleAttachTmux}
+              className="text-[10px] px-2 py-1 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+            >
+              Attach
+            </button>
+            <button
+              onClick={handleStop}
+              className="ml-auto text-[10px] px-2 py-1 rounded border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-colors"
+            >
+              Stop
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={handleStartAuto}
+              disabled={launching}
+              className="text-[10px] px-2 py-1 rounded border border-accent-green/30 text-accent-green hover:bg-accent-green/10 transition-colors disabled:opacity-50"
+            >
+              {launching ? "Starting..." : "Start Auto"}
+            </button>
+            <button
+              onClick={handleAttachTmux}
+              className="text-[10px] px-2 py-1 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+            >
+              Attach tmux
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default SessionCard;
