@@ -265,25 +265,25 @@ function Setup() {
     // Step 1: SSH + Workspaces
     <div key="ssh">
       <h3 className="text-sm font-bold text-base-text mb-1">Connection</h3>
-      <p className="text-[11px] text-base-muted mb-4">Enter your SSH details and workspace names.</p>
+      <p className="text-xs text-base-muted mb-4">Enter your SSH details and workspace names.</p>
       <div className="space-y-3">
         <div>
-          <label className="block text-[10px] text-base-muted mb-1">Profile Name (optional)</label>
+          <label className="block text-xs text-base-muted mb-1">Profile Name (optional)</label>
           <input type="text" value={profileName} onChange={(e) => setProfileName(e.target.value)}
             placeholder="e.g. My Server" className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none" autoFocus />
         </div>
         <div>
-          <label className="block text-[10px] text-base-muted mb-1">Host (IP or hostname)</label>
+          <label className="block text-xs text-base-muted mb-1">Host (IP or hostname)</label>
           <input type="text" value={sshHost} onChange={(e) => { setSshHost(e.target.value); setConnectionOk(false); }}
             placeholder="e.g. 192.168.1.100 or ec2-xx-xx.amazonaws.com" className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none" />
         </div>
         <div>
-          <label className="block text-[10px] text-base-muted mb-1">SSH User</label>
+          <label className="block text-xs text-base-muted mb-1">SSH User</label>
           <input type="text" value={sshUser} onChange={(e) => { setSshUser(e.target.value); setConnectionOk(false); }}
             placeholder="e.g. admin, ubuntu, root" className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none" />
         </div>
         <div>
-          <label className="block text-[10px] text-base-muted mb-1">SSH Key (.pem or private key)</label>
+          <label className="block text-xs text-base-muted mb-1">SSH Key (.pem or private key)</label>
           <label className={`flex items-center gap-2 border border-dashed rounded px-3 py-2 cursor-pointer transition-colors ${
             keyFileName ? "border-accent-green/50 bg-accent-green/5" : "border-base-border hover:border-accent-orange/50 bg-base-bg"
           }`}>
@@ -293,7 +293,7 @@ function Setup() {
             <span className="text-xs text-base-muted truncate">{keyFileName || "Click to upload key file"}</span>
             <input type="file" accept=".pem,.key,.pub,*" onChange={handleKeyUpload} className="hidden" />
           </label>
-          {keyFileName && <p className="text-[9px] text-accent-green mt-1">✓ {keyFileName} loaded</p>}
+          {keyFileName && <p className="text-xs text-accent-green mt-1">✓ {keyFileName} loaded</p>}
         </div>
 
         {/* Coder toggle */}
@@ -303,19 +303,19 @@ function Setup() {
               className={`w-10 h-6 rounded-full transition-colors relative flex-shrink-0 ${useCoder ? "bg-accent-green" : "bg-base-border"}`}>
               <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 ${useCoder ? "translate-x-4" : "translate-x-0"}`} />
             </button>
-            <span className="text-[11px] text-base-text">Using Coder workspaces</span>
+            <span className="text-xs text-base-text">Using Coder workspaces</span>
           </label>
 
           {useCoder && (
             <div className="mt-3 space-y-3">
               <div>
-                <label className="block text-[10px] text-base-muted mb-1">Coder Username</label>
+                <label className="block text-xs text-base-muted mb-1">Coder Username</label>
                 <input type="text" value={coderUser} onChange={(e) => { setCoderUser(e.target.value); setConnectionOk(false); }}
                   placeholder="Your Coder username" className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none" />
-                <p className="text-[9px] text-base-muted/60 mt-1">SSH alias: main.&lt;workspace&gt;.&lt;username&gt;.coder</p>
+                <p className="text-xs text-base-muted/60 mt-1">SSH alias: main.&lt;workspace&gt;.&lt;username&gt;.coder</p>
               </div>
               <div>
-                <label className="block text-[10px] text-base-muted mb-1">Workspace Names</label>
+                <label className="block text-xs text-base-muted mb-1">Workspace Names</label>
                 <div className="flex gap-2">
                   <input type="text" value={workspaceInput}
                     onChange={(e) => setWorkspaceInput(e.target.value)}
@@ -327,7 +327,7 @@ function Setup() {
                 {workspaceList.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {workspaceList.map((ws) => (
-                      <span key={ws.name} className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border ${
+                      <span key={ws.name} className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border ${
                         ws.tested ? "border-accent-green/50 text-accent-green" : "border-base-border text-base-muted"
                       }`}>
                         {ws.tested && "✓ "}{ws.name}
@@ -342,10 +342,10 @@ function Setup() {
         </div>
       </div>
 
-      {error && <p className="text-[10px] text-accent-red mt-3">{error}</p>}
+      {error && <p className="text-xs text-accent-red mt-3">{error}</p>}
 
       <div className="flex justify-between mt-6">
-        <button onClick={() => setStep(0)} className="text-[11px] text-base-muted hover:text-base-text">Back</button>
+        <button onClick={() => setStep(0)} className="text-xs text-base-muted hover:text-base-text">Back</button>
         <button onClick={handleTestConnection}
           disabled={!sshHost || testing || (useCoder && (!coderUser || workspaceList.length === 0))}
           className="px-4 py-1.5 rounded bg-accent-orange text-white text-xs hover:opacity-90 transition-opacity disabled:opacity-30">
@@ -357,13 +357,13 @@ function Setup() {
     // Step 2: Projects
     <div key="projects">
       <h3 className="text-sm font-bold text-base-text mb-1">Select Projects</h3>
-      <p className="text-[11px] text-base-muted mb-4">
+      <p className="text-xs text-base-muted mb-4">
         {discovering ? "Discovering projects..." : "Select the projects you want to monitor."}
       </p>
 
       {!discovering && discovered.length === 0 && (
         <button onClick={() => handleDiscover()} disabled={discovering}
-          className="w-full mb-4 text-[11px] px-3 py-2 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors disabled:opacity-50">
+          className="w-full mb-4 text-xs px-3 py-2 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors disabled:opacity-50">
           🔍 Discover Projects
         </button>
       )}
@@ -372,14 +372,14 @@ function Setup() {
         <div className="space-y-3 mb-4 max-h-[40vh] overflow-y-auto">
           {discovered.map((d) => (
             <div key={d.workspace} className="bg-base-bg border border-base-border rounded p-3">
-              <div className="text-[11px] font-semibold text-base-text mb-2">{d.workspace}</div>
+              <div className="text-xs font-semibold text-base-text mb-2">{d.workspace}</div>
               {d.projects.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
                   {d.projects.map((p) => {
                     const selected = selectedProjects.some((sp) => sp.workspace === d.workspace && sp.project === p);
                     return (
                       <button key={p} onClick={() => toggleProject(d.workspace, p)}
-                        className={`text-[10px] px-2 py-1 rounded border transition-colors ${
+                        className={`text-xs px-2 py-1 rounded border transition-colors ${
                           selected
                             ? "border-accent-orange/50 text-accent-orange bg-accent-orange/10"
                             : "border-base-border text-base-muted hover:text-base-text hover:border-base-muted"
@@ -390,7 +390,7 @@ function Setup() {
                   })}
                 </div>
               ) : (
-                <p className="text-[9px] text-base-muted">No folders found</p>
+                <p className="text-xs text-base-muted">No folders found</p>
               )}
             </div>
           ))}
@@ -398,15 +398,15 @@ function Setup() {
       )}
 
       {selectedProjects.length > 0 && (
-        <p className="text-[10px] text-accent-green mb-3">
+        <p className="text-xs text-accent-green mb-3">
           {selectedProjects.length} project{selectedProjects.length !== 1 ? "s" : ""} selected
         </p>
       )}
 
-      {error && <p className="text-[10px] text-accent-red mt-3">{error}</p>}
+      {error && <p className="text-xs text-accent-red mt-3">{error}</p>}
 
       <div className="flex justify-between mt-6">
-        <button onClick={() => setStep(1)} className="text-[11px] text-base-muted hover:text-base-text">Back</button>
+        <button onClick={() => setStep(1)} className="text-xs text-base-muted hover:text-base-text">Back</button>
         <div className="flex gap-2">
           <button onClick={handleSkip} disabled={saving}
             className="px-4 py-1.5 rounded border border-base-border text-xs text-base-muted hover:text-base-text transition-colors disabled:opacity-50">

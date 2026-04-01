@@ -110,18 +110,18 @@ function SessionCard({ session }: Props) {
             {displayName}
           </h3>
         </div>
-        <span className="text-[10px] text-base-muted">{workspace}</span>
+        <span className="text-xs text-base-muted">{workspace}</span>
       </div>
 
       {/* Milestone */}
       {status.milestone && (
         <div className="mb-2">
-          <span className="text-[10px] text-base-muted">Milestone</span>
+          <span className="text-xs text-base-muted">Milestone</span>
           <div className="text-xs text-accent-blue font-medium">
             {status.milestone}
             {status.phase && (
               <span
-                className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${
+                className={`ml-2 text-xs px-1.5 py-0.5 rounded ${
                   status.phase === "complete"
                     ? "bg-accent-green/10 text-accent-green"
                     : status.phase === "planning" || status.phase === "evaluating-gates"
@@ -139,7 +139,7 @@ function SessionCard({ session }: Props) {
       {/* Progress */}
       {status.sliceTotal != null && status.sliceTotal > 0 && (
         <div className="mb-2">
-          <div className="flex items-center justify-between text-[10px] text-base-muted mb-1">
+          <div className="flex items-center justify-between text-xs text-base-muted mb-1">
             <span>
               {status.sliceCurrent}/{status.sliceTotal} milestones done
             </span>
@@ -156,7 +156,7 @@ function SessionCard({ session }: Props) {
       )}
 
       {/* Metrics */}
-      <div className="flex items-center gap-3 text-[10px] flex-wrap">
+      <div className="flex items-center gap-3 text-xs flex-wrap">
         {status.cost != null && status.cost > 0 && (
           <span className="text-accent-amber font-medium">
             ${status.cost.toFixed(2)}
@@ -177,7 +177,7 @@ function SessionCard({ session }: Props) {
 
       {/* Next action */}
       {status.lastTaskDescription && (
-        <div className="mt-2 text-[10px] text-base-muted truncate">
+        <div className="mt-2 text-xs text-base-muted truncate">
           {status.lastTaskDescription}
         </div>
       )}
@@ -186,36 +186,36 @@ function SessionCard({ session }: Props) {
       <div className="mt-3 flex items-center gap-2">
         {isRunning && status.autoMode ? (
           <>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-green/10 text-accent-green font-medium">
+            <span className="text-xs px-1.5 py-0.5 rounded bg-accent-green/10 text-accent-green font-medium">
               AUTO
             </span>
             <button
               onClick={handleAttachTmux}
-              className="text-[10px] px-2 py-1 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+              className="text-xs px-2 py-1 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
             >
               Attach
             </button>
             <button
               onClick={handleStop}
-              className="ml-auto text-[10px] px-2 py-1 rounded border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-colors"
+              className="ml-auto text-xs px-2 py-1 rounded border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-colors"
             >
               Stop
             </button>
           </>
         ) : isRunning ? (
           <>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-amber/10 text-accent-amber font-medium">
+            <span className="text-xs px-1.5 py-0.5 rounded bg-accent-amber/10 text-accent-amber font-medium">
               IDLE
             </span>
             <button
               onClick={handleAttachTmux}
-              className="text-[10px] px-2 py-1 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+              className="text-xs px-2 py-1 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
             >
               Attach
             </button>
             <button
               onClick={handleStop}
-              className="ml-auto text-[10px] px-2 py-1 rounded border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-colors"
+              className="ml-auto text-xs px-2 py-1 rounded border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-colors"
             >
               Stop
             </button>
@@ -225,13 +225,13 @@ function SessionCard({ session }: Props) {
             <button
               onClick={handleStartAuto}
               disabled={launching}
-              className="text-[10px] px-2 py-1 rounded border border-accent-green/30 text-accent-green hover:bg-accent-green/10 transition-colors disabled:opacity-50"
+              className="text-xs px-2 py-1 rounded border border-accent-green/30 text-accent-green hover:bg-accent-green/10 transition-colors disabled:opacity-50"
             >
               {launching ? "Starting..." : "Start Auto"}
             </button>
             <button
               onClick={handleAttachTmux}
-              className="text-[10px] px-2 py-1 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+              className="text-xs px-2 py-1 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
             >
               Attach tmux
             </button>

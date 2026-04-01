@@ -10,6 +10,7 @@ import LogViewer from "./components/LogViewer";
 import Settings from "./components/Settings";
 import StatusBar from "./components/StatusBar";
 import KeyboardShortcutsHelp from "./components/KeyboardShortcutsHelp";
+import { useDebugLogger } from "./hooks/useDebugLogger";
 import Setup from "./components/Setup";
 
 /** Main app shell — only rendered after setup is complete */
@@ -20,6 +21,7 @@ function AppShell() {
 
   // Load/sync secrets from encrypted vault — safe here, setup is done
   useSecrets();
+  useDebugLogger();
   useKeyboardShortcuts();
 
   useEffect(() => {

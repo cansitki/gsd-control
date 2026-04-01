@@ -121,13 +121,13 @@ function LogViewer() {
         <button
           onClick={fetchLogs}
           disabled={loading}
-          className="text-[10px] px-2 py-1 rounded border border-base-border text-base-muted hover:text-base-text"
+          className="text-xs px-2 py-1 rounded border border-base-border text-base-muted hover:text-base-text"
         >
           {loading ? "Loading..." : "Refresh"}
         </button>
         <button
           onClick={() => setAutoScroll(!autoScroll)}
-          className={`text-[10px] px-2 py-1 rounded border ${
+          className={`text-xs px-2 py-1 rounded border ${
             autoScroll
               ? "border-accent-green/30 text-accent-green"
               : "border-base-border text-base-muted"
@@ -138,7 +138,7 @@ function LogViewer() {
       </div>
 
       {/* Log content */}
-      <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed">
+      <div className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-relaxed">
         {filteredLogs.length === 0 ? (
           <div className="text-center py-12 text-base-muted">
             {loading
@@ -150,7 +150,7 @@ function LogViewer() {
         ) : (
           filteredLogs.map((l, i) => (
             <div key={i} className="flex gap-3 py-0.5 group hover:bg-base-surface/50 rounded px-1">
-              <span className="text-base-muted/50 flex-shrink-0 text-[10px] w-16 text-right">
+              <span className="text-base-muted/50 flex-shrink-0 text-xs w-16 text-right">
                 {new Date(l.entry.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
               </span>
               <span className="text-base-muted flex-shrink-0 w-16">
@@ -162,7 +162,7 @@ function LogViewer() {
               <span className="text-base-text/60 flex-shrink-0">
                 {Object.values(l.entry.params || {}).join(" / ")}
               </span>
-              <span className="ml-auto text-base-muted/40 text-[10px] opacity-0 group-hover:opacity-100">
+              <span className="ml-auto text-base-muted/40 text-xs opacity-0 group-hover:opacity-100">
                 {l.project}
               </span>
             </div>
@@ -172,7 +172,7 @@ function LogViewer() {
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-1.5 border-t border-base-border bg-base-surface text-[10px] text-base-muted flex items-center justify-between">
+      <div className="px-4 py-1.5 border-t border-base-border bg-base-surface text-xs text-base-muted flex items-center justify-between">
         <span>{filteredLogs.length} events</span>
         <span>Last 50 events per project · Updates every 30s</span>
       </div>

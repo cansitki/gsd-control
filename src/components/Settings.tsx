@@ -5,18 +5,20 @@ import { useAppStore } from "../stores/appStore";
 import { WATCHER_SCRIPT } from "../lib/watcherScript";
 import { escapeShellSingleQuote } from "../lib/shell";
 
-const APP_VERSION = "1.0.3";
+const APP_VERSION = "1.0.4";
 
 function Settings() {
   const config = useAppStore((s) => s.config);
   const updateConfig = useAppStore((s) => s.updateConfig);
   const workspaces = useAppStore((s) => s.workspaces);
+  const debugEnabled = useAppStore((s) => s.debugEnabled);
+  const setDebugEnabled = useAppStore((s) => s.setDebugEnabled);
+  const debugLogs = useAppStore((s) => s.debugLogs);
+  const clearDebugLogs = useAppStore((s) => s.clearDebugLogs);
   const [deployStatus, setDeployStatus] = useState("");
   const [testStatus, setTestStatus] = useState("");
   const [updateStatus, setUpdateStatus] = useState("");
   const [isChecking, setIsChecking] = useState(false);
-  const [debugMode, setDebugMode] = useState(false);
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
 
   const handleCheckForUpdates = async () => {
     setIsChecking(true);
@@ -138,18 +140,18 @@ function Settings() {
           <div className="flex gap-2">
             <button
               onClick={handleTestTelegram}
-              className="text-[10px] px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+              className="text-xs px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
             >
               Test Message
             </button>
             <button
               onClick={handleDeployWatcher}
-              className="text-[10px] px-3 py-1.5 rounded border border-accent-orange/30 text-accent-orange hover:bg-accent-orange/10 transition-colors"
+              className="text-xs px-3 py-1.5 rounded border border-accent-orange/30 text-accent-orange hover:bg-accent-orange/10 transition-colors"
             >
               Restart Watchers
             </button>
             {(testStatus || deployStatus) && (
-              <span className="text-[10px] text-base-muted self-center">
+              <span className="text-xs text-base-muted self-center">
                 {testStatus || deployStatus}
               </span>
             )}
@@ -239,7 +241,7 @@ function Settings() {
                   {profile.id !== config.activeProfileId && (
                     <button
                       onClick={() => updateConfig({ activeProfileId: profile.id })}
-                      className="text-[9px] px-2 py-0.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+                      className="text-xs px-2 py-0.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
                     >
                       Activate
                     </button>
@@ -252,21 +254,21 @@ function Settings() {
                         : config.activeProfileId;
                       updateConfig({ sshProfiles: profiles, activeProfileId: activeId });
                     }}
-                    className="text-[9px] px-2 py-0.5 rounded border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-colors"
+                    className="text-xs px-2 py-0.5 rounded border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-colors"
                   >
                     Remove
                   </button>
                 </div>
               </div>
-              <div className="text-[10px] text-base-muted mt-1">{profile.host}</div>
-              <div className="text-[10px] text-base-muted">
+              <div className="text-xs text-base-muted mt-1">{profile.host}</div>
+              <div className="text-xs text-base-muted">
                 {profile.user}@{profile.coderUser}.coder
                 {profile.hasKey && " · 🔑 key stored"}
               </div>
             </div>
           ))}
           {config.sshProfiles.length === 0 && (
-            <p className="text-[10px] text-base-muted">No profiles configured.</p>
+            <p className="text-xs text-base-muted">No profiles configured.</p>
           )}
         </div>
       </section>
@@ -295,10 +297,10 @@ function Settings() {
           {workspaces.map((ws) => (
             <div key={ws.coderName} className="bg-base-bg border border-base-border rounded p-3">
               <div className="text-xs font-semibold text-base-text">{ws.displayName}</div>
-              <div className="text-[10px] text-base-muted mt-1">
+              <div className="text-xs text-base-muted mt-1">
                 SSH: main.{ws.coderName}.{config.sshProfiles.find((p) => p.id === config.activeProfileId)?.coderUser || "?"}.coder
               </div>
-              <div className="text-[10px] text-base-muted mt-0.5">
+              <div className="text-xs text-base-muted mt-0.5">
                 Projects: {ws.projects.map((p) => p.displayName).join(", ")}
               </div>
             </div>
@@ -313,18 +315,18 @@ function Settings() {
         </h3>
         <div className="space-y-3">
           <div className="flex items-center gap-3">
-            <span className="text-[10px] text-base-muted">
+            <span className="text-xs text-base-muted">
               Version: {APP_VERSION}
             </span>
             <button
               onClick={handleCheckForUpdates}
               disabled={isChecking}
-              className="text-[10px] px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="text-xs px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isChecking ? "Checking..." : "Check for Updates"}
             </button>
             {updateStatus && (
-              <span className="text-[10px] text-base-muted">{updateStatus}</span>
+              <span className="text-xs text-base-muted">{updateStatus}</span>
             )}
           </div>
           <Field
@@ -334,7 +336,7 @@ function Settings() {
             placeholder="ghp_..."
             type="password"
           />
-          <p className="text-[10px] text-base-muted/60">
+          <p className="text-xs text-base-muted/60">
             Requires a token with <span className="text-base-muted">repo</span> scope.{" "}
             Create one at GitHub → Settings → Developer settings → Personal access tokens.
           </p>
@@ -349,93 +351,37 @@ function Settings() {
         <div className="space-y-3">
           <Toggle
             label="Debug Mode"
-            checked={debugMode}
-            onChange={(v) => {
-              setDebugMode(v);
-              if (v) {
-                // Capture console logs
-                const logs: string[] = [];
-                const ts = () => new Date().toLocaleTimeString();
-
-                // Capture existing state
-                const state = useAppStore.getState();
-                logs.push(`[${ts()}] App version: ${APP_VERSION}`);
-                logs.push(`[${ts()}] Connection: ${state.connection.status}`);
-                logs.push(`[${ts()}] SSH Profiles: ${state.config.sshProfiles.length}`);
-                logs.push(`[${ts()}] Active profile: ${state.config.activeProfileId}`);
-                logs.push(`[${ts()}] Workspaces: ${state.workspaces.map(w => w.coderName).join(", ") || "none"}`);
-                logs.push(`[${ts()}] Sessions: ${Object.keys(state.sessions).length}`);
-                logs.push(`[${ts()}] Terminal tabs: ${state.terminalTabs.length}`);
-                logs.push(`[${ts()}] Layout: ${state.terminalLayout}`);
-
-                // Override console to capture
-                const origLog = console.log;
-                const origWarn = console.warn;
-                const origError = console.error;
-                console.log = (...args: unknown[]) => { logs.push(`[${ts()}] LOG: ${args.map(String).join(" ")}`); origLog(...args); };
-                console.warn = (...args: unknown[]) => { logs.push(`[${ts()}] WARN: ${args.map(String).join(" ")}`); origWarn(...args); };
-                console.error = (...args: unknown[]) => { logs.push(`[${ts()}] ERROR: ${args.map(String).join(" ")}`); origError(...args); };
-
-                // Capture unhandled errors
-                const errorHandler = (e: ErrorEvent) => {
-                  logs.push(`[${ts()}] UNCAUGHT: ${e.message} at ${e.filename}:${e.lineno}`);
-                };
-                window.addEventListener("error", errorHandler);
-
-                // Capture promise rejections
-                const rejectionHandler = (e: PromiseRejectionEvent) => {
-                  logs.push(`[${ts()}] REJECTION: ${e.reason}`);
-                };
-                window.addEventListener("unhandledrejection", rejectionHandler);
-
-                setDebugLogs(logs);
-
-                // Poll for new logs
-                const interval = setInterval(() => {
-                  setDebugLogs([...logs]);
-                }, 1000);
-
-                // Store cleanup refs on window
-                (window as any).__debugCleanup = () => {
-                  console.log = origLog;
-                  console.warn = origWarn;
-                  console.error = origError;
-                  window.removeEventListener("error", errorHandler);
-                  window.removeEventListener("unhandledrejection", rejectionHandler);
-                  clearInterval(interval);
-                };
-              } else {
-                // Restore console
-                if ((window as any).__debugCleanup) {
-                  (window as any).__debugCleanup();
-                  delete (window as any).__debugCleanup;
-                }
-                setDebugLogs([]);
-              }
-            }}
+            checked={debugEnabled}
+            onChange={(v) => setDebugEnabled(v)}
           />
-          {debugMode && (
+          {debugEnabled && (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText(debugLogs.join("\n")).catch(() => {});
                   }}
-                  className="text-[10px] px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+                  className="text-xs px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
                 >
                   📋 Copy Logs
                 </button>
-                <span className="text-[9px] text-base-muted">{debugLogs.length} entries</span>
+                <button
+                  onClick={clearDebugLogs}
+                  className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
+                >
+                  Clear
+                </button>
+                <span className="text-xs text-base-muted">{debugLogs.length} entries</span>
               </div>
               <div className="bg-base-bg border border-base-border rounded p-2 max-h-[300px] overflow-y-auto font-mono">
                 {debugLogs.length === 0 ? (
-                  <p className="text-[9px] text-base-muted">No logs yet...</p>
+                  <p className="text-xs text-base-muted">Logs are being captured in the background...</p>
                 ) : (
-                  debugLogs.map((log, i) => (
+                  debugLogs.slice(-200).map((log, i) => (
                     <div
                       key={i}
-                      className={`text-[9px] py-0.5 ${
-                        log.includes("ERROR") || log.includes("UNCAUGHT")
+                      className={`text-xs py-0.5 ${
+                        log.includes("ERROR") || log.includes("UNCAUGHT") || log.includes("REJECTION")
                           ? "text-accent-red"
                           : log.includes("WARN")
                             ? "text-accent-amber"
@@ -447,6 +393,9 @@ function Settings() {
                   ))
                 )}
               </div>
+              <p className="text-xs text-base-muted/60">
+                Showing last 200 of {debugLogs.length} entries. Logs persist while navigating — max 5000 entries (~200 min).
+              </p>
             </div>
           )}
         </div>
@@ -470,7 +419,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-[10px] text-base-muted mb-1">{label}</label>
+      <label className="block text-xs text-base-muted mb-1">{label}</label>
       <input
         type={type}
         value={value}

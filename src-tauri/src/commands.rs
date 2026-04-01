@@ -201,6 +201,10 @@ pub async fn exec_in_workspace(
     command: String,
 ) -> Result<String, String> {
     let manager = ssh.lock().await;
+    // If coder_user is empty, try to set it from config
+    if manager.config.coder_user.is_empty() {
+        return Err("Not connected — go to Settings or restart the app".to_string());
+    }
     manager.exec_in_workspace(&workspace, &command).await
 }
 

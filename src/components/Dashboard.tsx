@@ -58,7 +58,7 @@ function Dashboard() {
             setRefreshing(false);
           }}
           disabled={refreshing}
-          className="text-[10px] px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text hover:border-accent-orange/30 transition-colors disabled:opacity-50"
+          className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text hover:border-accent-orange/30 transition-colors disabled:opacity-50"
         >
           {refreshing ? "Refreshing..." : "↻ Refresh"}
         </button>
@@ -67,7 +67,7 @@ function Dashboard() {
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
-          <p className="text-[10px] text-base-muted uppercase tracking-wider">
+          <p className="text-xs text-base-muted uppercase tracking-wider">
             Active Sessions
           </p>
           <p className="text-2xl font-bold text-accent-green mt-1">
@@ -75,7 +75,7 @@ function Dashboard() {
           </p>
         </div>
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
-          <p className="text-[10px] text-base-muted uppercase tracking-wider">
+          <p className="text-xs text-base-muted uppercase tracking-wider">
             Total Cost
           </p>
           <p className="text-2xl font-bold text-accent-amber mt-1">
@@ -83,19 +83,19 @@ function Dashboard() {
           </p>
         </div>
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
-          <p className="text-[10px] text-base-muted uppercase tracking-wider">
+          <p className="text-xs text-base-muted uppercase tracking-wider">
             Tokens (all projects)
           </p>
           <p className="text-2xl font-bold text-accent-blue mt-1">
             {formatTokens(totalTokensRead + totalTokensWrite)}
           </p>
-          <div className="flex gap-3 mt-1 text-[10px] text-base-muted">
+          <div className="flex gap-3 mt-1 text-xs text-base-muted">
             <span>↓ {formatTokens(totalTokensRead)}</span>
             <span>↑ {formatTokens(totalTokensWrite)}</span>
           </div>
         </div>
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
-          <p className="text-[10px] text-base-muted uppercase tracking-wider">
+          <p className="text-xs text-base-muted uppercase tracking-wider">
             Connection
           </p>
           <p
@@ -150,7 +150,7 @@ function Dashboard() {
             {recentEvents.map((event, i) => (
               <div
                 key={i}
-                className="flex items-center gap-3 text-[11px] py-1.5 px-3 rounded bg-base-surface border border-base-border"
+                className="flex items-center gap-3 text-xs py-1.5 px-3 rounded bg-base-surface border border-base-border"
               >
                 <span
                   className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${

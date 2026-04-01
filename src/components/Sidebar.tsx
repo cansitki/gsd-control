@@ -72,7 +72,7 @@ function AddProjectModal({
         </h3>
         <div className="space-y-3">
           <div>
-            <label className="block text-[10px] text-base-muted mb-1">
+            <label className="block text-xs text-base-muted mb-1">
               Folder name (on workspace)
             </label>
             <input
@@ -86,7 +86,7 @@ function AddProjectModal({
             />
           </div>
           <div>
-            <label className="block text-[10px] text-base-muted mb-1">
+            <label className="block text-xs text-base-muted mb-1">
               Display name (optional)
             </label>
             <input
@@ -99,19 +99,19 @@ function AddProjectModal({
             />
           </div>
           {status && (
-            <p className="text-[10px] text-accent-red">{status}</p>
+            <p className="text-xs text-accent-red">{status}</p>
           )}
           <div className="flex gap-2 justify-end pt-1">
             <button
               onClick={onClose}
-              className="text-[10px] px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
+              className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleCreate}
               disabled={creating}
-              className="text-[10px] px-3 py-1.5 rounded bg-accent-orange text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+              className="text-xs px-3 py-1.5 rounded bg-accent-orange text-white hover:opacity-90 transition-opacity disabled:opacity-50"
             >
               {creating ? "Creating..." : "Create"}
             </button>
@@ -183,7 +183,7 @@ function UploadModal({
         <h3 className="text-xs font-bold text-base-text mb-1">
           Upload Files
         </h3>
-        <p className="text-[10px] text-base-muted mb-4">
+        <p className="text-xs text-base-muted mb-4">
           to ~/{project.path}/ on {workspace}
         </p>
 
@@ -224,7 +224,7 @@ function UploadModal({
             {uploadedFiles.map((f) => (
               <div
                 key={f}
-                className="text-[10px] text-accent-green flex items-center gap-1.5"
+                className="text-xs text-accent-green flex items-center gap-1.5"
               >
                 <span>✓</span>
                 <span>{f}</span>
@@ -235,7 +235,7 @@ function UploadModal({
 
         {status && (
           <p
-            className={`text-[10px] mt-2 ${
+            className={`text-xs mt-2 ${
               status.startsWith("✓") ? "text-accent-green" : status.startsWith("Failed") ? "text-accent-red" : "text-base-muted"
             }`}
           >
@@ -247,7 +247,7 @@ function UploadModal({
           <button
             onClick={onClose}
             disabled={uploading}
-            className="text-[10px] px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors disabled:opacity-50"
+            className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors disabled:opacity-50"
           >
             {uploadedFiles.length > 0 ? "Done" : "Cancel"}
           </button>
@@ -259,10 +259,41 @@ function UploadModal({
 
 function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
   const workspaces = useAppStore((s) => s.workspaces);
+  const [sshCommand, setSshCommand] = useState("");
   const [wsName, setWsName] = useState("");
   const [wsDisplay, setWsDisplay] = useState("");
   const [status, setStatus] = useState("");
   const [testing, setTesting] = useState(false);
+  const [parsed, setParsed] = useState(false);
+
+  // Parse SSH command from Coder: "ssh coder.workspace" or "ssh main.workspace.user.coder"
+  const handleParse = () => {
+    const cmd = sshCommand.trim();
+    // Match: ssh coder.WORKSPACE
+    let match = cmd.match(/ssh\s+coder\.(\S+)/i);
+    if (match) {
+      setWsName(match[1]);
+      setParsed(true);
+      setStatus("");
+      return;
+    }
+    // Match: ssh main.WORKSPACE.USER.coder
+    match = cmd.match(/ssh\s+main\.(\S+?)\.(\S+?)\.coder/i);
+    if (match) {
+      setWsName(match[1]);
+      setParsed(true);
+      setStatus("");
+      return;
+    }
+    // Match: just a workspace name
+    if (cmd && !cmd.includes(" ")) {
+      setWsName(cmd);
+      setParsed(true);
+      setStatus("");
+      return;
+    }
+    setStatus("Could not parse. Paste the SSH command from Coder, or type the workspace name.");
+  };
 
   const handleAdd = async () => {
     const name = wsName.trim();
@@ -277,16 +308,13 @@ function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
         { workspace: name }
       );
       if (!result.connected) {
-        setStatus(result.error || "Workspace unreachable");
-        setTesting(false);
-        return;
+        // Add anyway but warn
+        setStatus("");
       }
     } catch {
       // Can't test — add anyway
     }
 
-    // Add workspace with a dummy project so it appears (addProject creates ws if needed)
-    // Actually just create the workspace entry directly
     const store = useAppStore.getState();
     useAppStore.setState({
       workspaces: [
@@ -295,41 +323,70 @@ function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
       ],
     });
 
-    setStatus("");
     setTesting(false);
     onClose();
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-base-surface border border-base-border rounded-lg p-5 w-80 shadow-xl">
-        <h3 className="text-xs font-bold text-base-text mb-4">Add Workspace</h3>
+      <div className="bg-base-surface border border-base-border rounded-lg p-5 w-96 shadow-xl">
+        <h3 className="text-xs font-bold text-base-text mb-1">Add Workspace</h3>
+        <p className="text-xs text-base-muted mb-4">
+          Go to your Coder dashboard → select workspace → "Connect via SSH" → copy the command from step 2 and paste it below.
+        </p>
         <div className="space-y-3">
-          <div>
-            <label className="block text-[10px] text-base-muted mb-1">Workspace Name (Coder)</label>
-            <input type="text" value={wsName} onChange={(e) => setWsName(e.target.value)}
-              placeholder="e.g. dev-server"
-              className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none"
-              autoFocus onKeyDown={(e) => e.key === "Enter" && handleAdd()} />
-          </div>
-          <div>
-            <label className="block text-[10px] text-base-muted mb-1">Display Name (optional)</label>
-            <input type="text" value={wsDisplay} onChange={(e) => setWsDisplay(e.target.value)}
-              placeholder={wsName || "e.g. My Server"}
-              className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none"
-              onKeyDown={(e) => e.key === "Enter" && handleAdd()} />
-          </div>
-          {status && <p className="text-[10px] text-accent-red">{status}</p>}
-          <div className="flex gap-2 justify-end pt-1">
-            <button onClick={onClose}
-              className="text-[10px] px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors">
-              Cancel
-            </button>
-            <button onClick={handleAdd} disabled={testing}
-              className="text-[10px] px-3 py-1.5 rounded bg-accent-orange text-white hover:opacity-90 transition-opacity disabled:opacity-50">
-              {testing ? "Testing..." : "Add"}
-            </button>
-          </div>
+          {!parsed ? (
+            <>
+              <div>
+                <label className="block text-xs text-base-muted mb-1">Paste SSH command from Coder</label>
+                <input type="text" value={sshCommand}
+                  onChange={(e) => setSshCommand(e.target.value)}
+                  placeholder="ssh coder.my-workspace"
+                  className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none font-mono"
+                  autoFocus
+                  onKeyDown={(e) => e.key === "Enter" && handleParse()} />
+                <p className="text-xs text-base-muted/60 mt-1">
+                  Formats: <span className="text-base-muted">ssh coder.workspace</span> or <span className="text-base-muted">ssh main.workspace.user.coder</span> or just the workspace name
+                </p>
+              </div>
+              {status && <p className="text-xs text-accent-red">{status}</p>}
+              <div className="flex gap-2 justify-end pt-1">
+                <button onClick={onClose}
+                  className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors">
+                  Cancel
+                </button>
+                <button onClick={handleParse} disabled={!sshCommand.trim()}
+                  className="text-xs px-3 py-1.5 rounded bg-accent-orange text-white hover:opacity-90 transition-opacity disabled:opacity-30">
+                  Parse
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="bg-base-bg border border-accent-green/30 rounded p-2">
+                <p className="text-xs text-accent-green">✓ Detected workspace: <span className="font-semibold">{wsName}</span></p>
+              </div>
+              <div>
+                <label className="block text-xs text-base-muted mb-1">Display Name (optional)</label>
+                <input type="text" value={wsDisplay}
+                  onChange={(e) => setWsDisplay(e.target.value)}
+                  placeholder={wsName}
+                  className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none"
+                  onKeyDown={(e) => e.key === "Enter" && handleAdd()} />
+              </div>
+              {status && <p className="text-xs text-accent-red">{status}</p>}
+              <div className="flex gap-2 justify-end pt-1">
+                <button onClick={() => { setParsed(false); setWsName(""); }}
+                  className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors">
+                  Back
+                </button>
+                <button onClick={handleAdd} disabled={testing}
+                  className="text-xs px-3 py-1.5 rounded bg-accent-orange text-white hover:opacity-90 transition-opacity disabled:opacity-50">
+                  {testing ? "Adding..." : "Add Workspace"}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -396,7 +453,7 @@ function Sidebar() {
                     : "bg-accent-red"
               }`}
             />
-            <span className="text-[10px] text-base-muted">
+            <span className="text-xs text-base-muted">
               {connection.status}
             </span>
           </div>
@@ -421,7 +478,7 @@ function Sidebar() {
 
         {/* Workspace tree */}
         <div className="flex-1 overflow-y-auto px-2 py-2">
-          <p className="text-[10px] text-base-muted uppercase tracking-wider px-3 mb-2">
+          <p className="text-xs text-base-muted uppercase tracking-wider px-3 mb-2">
             Workspaces
           </p>
           {workspaces.map((ws) => (
@@ -443,17 +500,15 @@ function Sidebar() {
                   </button>
                   <button
                     onClick={() => {
-                      if (confirm(`Remove workspace "${ws.displayName}" and all its projects from the sidebar?`)) {
-                        const store = useAppStore.getState();
-                        useAppStore.setState({
-                          workspaces: store.workspaces.filter((w) => w.coderName !== ws.coderName),
-                        });
-                      }
+                      const store = useAppStore.getState();
+                      useAppStore.setState({
+                        workspaces: store.workspaces.filter((w) => w.coderName !== ws.coderName),
+                      });
                     }}
                     className="text-base-muted hover:text-accent-red w-4 h-4 flex items-center justify-center rounded hover:bg-base-bg"
                     title="Remove workspace"
                   >
-                    <span className="text-[10px] leading-none">×</span>
+                    <span className="text-xs leading-none">×</span>
                   </button>
                 </div>
               </div>
@@ -554,7 +609,7 @@ function Sidebar() {
                     key={proj.path}
                     onClick={handleProjectClick}
                     onContextMenu={handleContextMenu}
-                    className={`w-full text-left px-3 py-1 rounded text-[11px] flex items-center gap-2 transition-colors ${
+                    className={`w-full text-left px-3 py-1 rounded text-xs flex items-center gap-2 transition-colors ${
                       isActive
                         ? "bg-base-bg text-accent-orange"
                         : "text-base-muted hover:text-base-text hover:bg-base-bg/50"
@@ -571,7 +626,7 @@ function Sidebar() {
                     />
                     <span className="truncate">{proj.displayName}</span>
                     {session?.status.cost != null && (
-                      <span className="ml-auto text-accent-amber text-[10px]">
+                      <span className="ml-auto text-accent-amber text-xs">
                         ${session.status.cost.toFixed(0)}
                       </span>
                     )}
@@ -584,7 +639,7 @@ function Sidebar() {
           {/* Add workspace button */}
           <button
             onClick={() => setAddingWorkspace(true)}
-            className="w-full text-left px-3 py-1.5 mt-1 rounded text-[10px] text-base-muted hover:text-accent-orange hover:bg-base-bg/50 transition-colors"
+            className="w-full text-left px-3 py-1.5 mt-1 rounded text-xs text-base-muted hover:text-accent-orange hover:bg-base-bg/50 transition-colors"
           >
             + Add Workspace
           </button>
@@ -632,26 +687,20 @@ function Sidebar() {
                 });
                 setContextMenu(null);
               }}
-              className="w-full text-left px-3 py-1.5 text-[11px] text-base-text hover:bg-base-bg transition-colors"
+              className="w-full text-left px-3 py-1.5 text-xs text-base-text hover:bg-base-bg transition-colors"
             >
               📤 Upload Files
             </button>
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                if (
-                  confirm(
-                    `Remove "${contextMenu.project.displayName}" from the sidebar? (Files on workspace are not deleted)`
-                  )
-                ) {
-                  removeProject(
-                    contextMenu.workspace,
-                    contextMenu.project.path
-                  );
-                }
+                removeProject(
+                  contextMenu.workspace,
+                  contextMenu.project.path
+                );
                 setContextMenu(null);
               }}
-              className="w-full text-left px-3 py-1.5 text-[11px] text-accent-red hover:bg-base-bg transition-colors"
+              className="w-full text-left px-3 py-1.5 text-xs text-accent-red hover:bg-base-bg transition-colors"
             >
               ✕ Remove Project
             </button>
@@ -672,7 +721,7 @@ function Sidebar() {
             <h3 className="text-xs font-bold text-base-text mb-1">
               Sessions for {sessionPicker.project.displayName}
             </h3>
-            <p className="text-[10px] text-base-muted mb-4">
+            <p className="text-xs text-base-muted mb-4">
               Reattach to an existing session or start a new one.
             </p>
             <div className="space-y-1.5 mb-4 max-h-[40vh] overflow-y-auto">
@@ -709,14 +758,14 @@ function Sidebar() {
                         setCurrentView("terminal");
                         setSessionPicker(null);
                       }}
-                      className="text-[11px] text-base-text hover:text-accent-orange transition-colors truncate text-left flex-1 min-w-0"
+                      className="text-xs text-base-text hover:text-accent-orange transition-colors truncate text-left flex-1 min-w-0"
                     >
                       {s.name}
                     </button>
-                    <span className={`text-[9px] flex-shrink-0 ${s.isIdle ? "text-base-muted" : "text-accent-green"}`}>
+                    <span className={`text-xs flex-shrink-0 ${s.isIdle ? "text-base-muted" : "text-accent-green"}`}>
                       {idleText}
                     </span>
-                    <span className="text-[9px] text-base-muted flex-shrink-0">
+                    <span className="text-xs text-base-muted flex-shrink-0">
                       {s.windows}w
                     </span>
                     <button
@@ -736,7 +785,7 @@ function Sidebar() {
                           // ignore
                         }
                       }}
-                      className="text-[9px] px-1.5 py-0.5 rounded border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-colors flex-shrink-0"
+                      className="text-xs px-1.5 py-0.5 rounded border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-colors flex-shrink-0"
                       title="Kill this session"
                     >
                       Kill
@@ -745,7 +794,7 @@ function Sidebar() {
                 );
               })}
               {sessionPicker.sessions.length === 0 && (
-                <p className="text-[10px] text-base-muted text-center py-2">
+                <p className="text-xs text-base-muted text-center py-2">
                   All sessions killed
                 </p>
               )}
@@ -753,7 +802,7 @@ function Sidebar() {
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setSessionPicker(null)}
-                className="text-[10px] px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
+                className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
               >
                 Cancel
               </button>
@@ -770,7 +819,7 @@ function Sidebar() {
                   setCurrentView("terminal");
                   setSessionPicker(null);
                 }}
-                className="text-[10px] px-3 py-1.5 rounded bg-accent-orange text-white hover:opacity-90 transition-opacity"
+                className="text-xs px-3 py-1.5 rounded bg-accent-orange text-white hover:opacity-90 transition-opacity"
               >
                 New Session
               </button>

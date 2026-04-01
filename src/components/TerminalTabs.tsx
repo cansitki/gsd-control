@@ -91,11 +91,11 @@ function SessionManager({ onClose }: { onClose: () => void }) {
         </div>
 
         {loading ? (
-          <p className="text-[10px] text-base-muted py-4 text-center">
+          <p className="text-xs text-base-muted py-4 text-center">
             Loading sessions...
           </p>
         ) : sessions.length === 0 ? (
-          <p className="text-[10px] text-base-muted py-4 text-center">
+          <p className="text-xs text-base-muted py-4 text-center">
             No tmux sessions running
           </p>
         ) : (
@@ -112,10 +112,10 @@ function SessionManager({ onClose }: { onClose: () => void }) {
                     }`}
                   />
                   <div className="min-w-0">
-                    <span className="text-[11px] text-base-text block truncate">
+                    <span className="text-xs text-base-text block truncate">
                       {s.name}
                     </span>
-                    <span className="text-[9px] text-base-muted">
+                    <span className="text-xs text-base-muted">
                       {s.workspaceDisplay}
                       {s.attached && " · attached"}
                     </span>
@@ -124,7 +124,7 @@ function SessionManager({ onClose }: { onClose: () => void }) {
                 <button
                   onClick={() => handleKill(s)}
                   disabled={killing === s.name}
-                  className="text-[10px] px-2 py-1 rounded border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-colors disabled:opacity-50 flex-shrink-0 ml-2"
+                  className="text-xs px-2 py-1 rounded border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-colors disabled:opacity-50 flex-shrink-0 ml-2"
                 >
                   {killing === s.name ? "..." : "Kill"}
                 </button>
@@ -134,13 +134,13 @@ function SessionManager({ onClose }: { onClose: () => void }) {
         )}
 
         <div className="flex justify-between items-center mt-4 pt-3 border-t border-base-border">
-          <span className="text-[9px] text-base-muted">
+          <span className="text-xs text-base-muted">
             {sessions.length} session{sessions.length !== 1 ? "s" : ""} ·{" "}
             {sessions.filter((s) => s.attached).length} attached
           </span>
           <button
             onClick={fetchSessions}
-            className="text-[10px] px-2 py-1 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
+            className="text-xs px-2 py-1 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
           >
             Refresh
           </button>
@@ -202,7 +202,7 @@ function TerminalTabs() {
           {terminalTabs.map((tab) => (
             <div
               key={tab.id}
-              className={`flex items-center gap-2 px-3 py-2 text-[11px] cursor-pointer border-b-2 transition-colors flex-shrink-0 ${
+              className={`flex items-center gap-2 px-3 py-2 text-xs cursor-pointer border-b-2 transition-colors flex-shrink-0 ${
                 activeTerminalId === tab.id
                   ? "border-accent-orange text-accent-orange"
                   : "border-transparent text-base-muted hover:text-base-text"
@@ -215,7 +215,7 @@ function TerminalTabs() {
                   e.stopPropagation();
                   removeTerminalTab(tab.id);
                 }}
-                className="text-base-muted hover:text-accent-red text-[10px] ml-1"
+                className="text-base-muted hover:text-accent-red text-xs ml-1"
               >
                 ✕
               </button>
@@ -236,7 +236,7 @@ function TerminalTabs() {
             <button
               key={opt.value}
               onClick={() => setTerminalLayout(opt.value)}
-              className={`px-1.5 py-1 text-[10px] rounded transition-colors ${
+              className={`px-1.5 py-1 text-xs rounded transition-colors ${
                 terminalLayout === opt.value
                   ? "bg-accent-orange/20 text-accent-orange"
                   : "text-base-muted hover:text-base-text"
@@ -248,7 +248,7 @@ function TerminalTabs() {
           ))}
           <button
             onClick={() => setShowSessions(true)}
-            className="px-1.5 py-1 text-[10px] text-base-muted hover:text-base-text transition-colors ml-1"
+            className="px-1.5 py-1 text-xs text-base-muted hover:text-base-text transition-colors ml-1"
             title="Manage remote sessions"
           >
             ⚙
@@ -285,7 +285,7 @@ function TerminalTabs() {
               >
                 {/* Grid cell label */}
                 <div className="absolute top-0 left-0 right-0 z-10 px-2 py-0.5 bg-[#141a14]/80">
-                  <span className="text-[9px] text-base-muted truncate block">
+                  <span className="text-xs text-base-muted truncate block">
                     {tab.title}
                   </span>
                 </div>
@@ -310,7 +310,7 @@ function TerminalTabs() {
               >
                 <button
                   onClick={handleNewTab}
-                  className="text-[10px] text-base-muted/30 hover:text-base-muted border border-dashed border-base-border/20 rounded px-3 py-1.5 transition-colors"
+                  className="text-xs text-base-muted/30 hover:text-base-muted border border-dashed border-base-border/20 rounded px-3 py-1.5 transition-colors"
                 >
                   + Open
                 </button>

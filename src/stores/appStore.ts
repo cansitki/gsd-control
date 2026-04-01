@@ -53,6 +53,13 @@ interface AppState {
   // Config
   config: AppConfig;
   updateConfig: (updates: Partial<AppConfig>) => void;
+
+  // Debug
+  debugEnabled: boolean;
+  debugLogs: string[];
+  setDebugEnabled: (enabled: boolean) => void;
+  addDebugLog: (log: string) => void;
+  clearDebugLogs: () => void;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -173,6 +180,16 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     set((state) => ({
       config: { ...state.config, ...updates },
     })),
+
+  // Debug — rolling log buffer, max 5000 entries (~200 min at 25 logs/min)
+  debugEnabled: false,
+  debugLogs: [],
+  setDebugEnabled: (enabled) => set({ debugEnabled: enabled }),
+  addDebugLog: (log) =>
+    set((state) => ({
+      debugLogs: [...state.debugLogs, log].slice(-5000),
+    })),
+  clearDebugLogs: () => set({ debugLogs: [] }),
 }), {
   name: "gsd-control-v2",
   version: 2,
@@ -193,6 +210,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     currentView: state.currentView,
     selectedProject: state.selectedProject,
     terminalLayout: state.terminalLayout,
+    debugEnabled: state.debugEnabled,
   }),
 }));
 

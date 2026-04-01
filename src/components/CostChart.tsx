@@ -62,7 +62,7 @@ function CostChart({ data, totalCost, loading }: CostChartProps) {
   if (loading) {
     return (
       <div className="bg-base-surface border border-base-border rounded-lg p-4">
-        <p className="text-[10px] text-base-muted uppercase tracking-wider mb-3">
+        <p className="text-xs text-base-muted uppercase tracking-wider mb-3">
           Cost History (14 days)
         </p>
         <div className="flex items-center justify-center h-40">
@@ -77,7 +77,7 @@ function CostChart({ data, totalCost, loading }: CostChartProps) {
   if (dates.length === 0) {
     return (
       <div className="bg-base-surface border border-base-border rounded-lg p-4">
-        <p className="text-[10px] text-base-muted uppercase tracking-wider mb-3">
+        <p className="text-xs text-base-muted uppercase tracking-wider mb-3">
           Cost History (14 days)
         </p>
         <div className="flex items-center justify-center h-40">
@@ -148,7 +148,7 @@ function CostChart({ data, totalCost, loading }: CostChartProps) {
     <div className="bg-base-surface border border-base-border rounded-lg p-4">
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
-        <p className="text-[10px] text-base-muted uppercase tracking-wider">
+        <p className="text-xs text-base-muted uppercase tracking-wider">
           Cost History (14 days)
         </p>
         <p className="text-sm font-bold text-accent-amber">
@@ -165,7 +165,7 @@ function CostChart({ data, totalCost, loading }: CostChartProps) {
                 className="w-2 h-2 rounded-sm flex-shrink-0"
                 style={{ backgroundColor: getColor(i) }}
               />
-              <span className="text-[10px] text-base-muted">{proj}</span>
+              <span className="text-xs text-base-muted">{proj}</span>
             </div>
           ))}
         </div>
@@ -275,9 +275,9 @@ function CostChart({ data, totalCost, loading }: CostChartProps) {
               top: Math.max(tooltip.y - 60, 0),
             }}
           >
-            <p className="text-[10px] text-base-muted mb-1">{tooltip.date}</p>
+            <p className="text-xs text-base-muted mb-1">{tooltip.date}</p>
             {tooltip.entries.map((en, i) => (
-              <div key={i} className="flex items-center gap-2 text-[10px]">
+              <div key={i} className="flex items-center gap-2 text-xs">
                 <span
                   className="w-1.5 h-1.5 rounded-sm flex-shrink-0"
                   style={{ backgroundColor: en.color }}
@@ -288,7 +288,7 @@ function CostChart({ data, totalCost, loading }: CostChartProps) {
                 </span>
               </div>
             ))}
-            <div className="border-t border-base-border mt-1 pt-1 text-[10px] text-accent-amber font-medium">
+            <div className="border-t border-base-border mt-1 pt-1 text-xs text-accent-amber font-medium">
               Total: ${tooltip.total.toFixed(2)}
             </div>
           </div>
