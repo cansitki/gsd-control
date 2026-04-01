@@ -63,12 +63,14 @@ check "tauri_plugin_process registered" \
 
 # --- Frontend ---
 echo "Frontend:"
-check "useUpdater.ts hook exists" \
-  test -f "$PROJECT_DIR/src/hooks/useUpdater.ts"
-check "UpdateNotification.tsx component exists" \
-  test -f "$PROJECT_DIR/src/components/UpdateNotification.tsx"
-check "UpdateNotification mounted in App.tsx" \
-  grep -q 'UpdateNotification' "$PROJECT_DIR/src/App.tsx"
+check "Settings.tsx has check_update invoke" \
+  grep -q 'check_update' "$PROJECT_DIR/src/components/Settings.tsx"
+check "Settings.tsx has install_update invoke" \
+  grep -q 'install_update' "$PROJECT_DIR/src/components/Settings.tsx"
+check "Settings.tsx imports relaunch" \
+  grep -q 'relaunch' "$PROJECT_DIR/src/components/Settings.tsx"
+check "Settings.tsx uses getVersion from @tauri-apps/api/app" \
+  grep -q 'getVersion' "$PROJECT_DIR/src/components/Settings.tsx"
 
 # --- Summary ---
 echo ""

@@ -43,14 +43,12 @@ check "contents: write permission" grep -q 'contents: write' "$WORKFLOW"
 # --- Matrix ---
 echo "Matrix:"
 check "aarch64-apple-darwin target" grep -q 'aarch64-apple-darwin' "$WORKFLOW"
-check "x86_64-apple-darwin target" grep -q 'x86_64-apple-darwin' "$WORKFLOW"
 
 # --- Actions ---
 echo "Actions:"
-check "actions/checkout@v4" grep -q 'actions/checkout@v4' "$WORKFLOW"
-check "actions/setup-node@v4" grep -q 'actions/setup-node@v4' "$WORKFLOW"
+check "actions/checkout@v5" grep -q 'actions/checkout@v5' "$WORKFLOW"
+check "actions/setup-node@v5" grep -q 'actions/setup-node@v5' "$WORKFLOW"
 check "dtolnay/rust-toolchain@stable" grep -q 'dtolnay/rust-toolchain@stable' "$WORKFLOW"
-check "swatinem/rust-cache@v2" grep -q 'swatinem/rust-cache@v2' "$WORKFLOW"
 check "tauri-apps/tauri-action@v0" grep -q 'tauri-apps/tauri-action@v0' "$WORKFLOW"
 
 # --- Signing ---
