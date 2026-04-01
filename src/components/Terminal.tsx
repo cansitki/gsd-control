@@ -163,6 +163,31 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
       term.writeln(`\x1b[38;5;208mGSD Control Terminal\x1b[0m`);
       term.writeln(`\x1b[38;5;242mWorkspace: ${workspace} · Project: ${project}\x1b[0m`);
 
+      // Wait for SSH connection to be established (handles hydration race)
+      let waited = 0;
+      while (waited < 15000) {
+        const status = useAppStore.getState().connection.status;
+        if (status === "connected") break;
+        if (waited === 0) {
+          term.writeln(`\x1b[38;5;242mWaiting for SSH connection...\x1b[0m`);
+          console.log(`Terminal ${tabId}: waiting for SSH connection...`);
+        }
+        await new Promise((r) => setTimeout(r, 500));
+        waited += 500;
+        if (!mountedRef.current) { connectingRef.current = false; return; }
+      }
+
+      const finalStatus = useAppStore.getState().connection.status;
+      if (finalStatus !== "connected") {
+        connectingRef.current = false;
+        const connState = useAppStore.getState().connection;
+        const msg = `SSH not connected (status: ${finalStatus}, error: ${connState.error || "none"})`;
+        console.error(`Terminal ${tabId}: ${msg}`);
+        term.writeln(`\x1b[38;5;196m${msg}\x1b[0m`);
+        term.writeln(`\x1b[38;5;242mGo to Settings to connect, then press any key to retry.\x1b[0m`);
+        return;
+      }
+
       try {
         await invoke("terminal_close", { id: tabId }).catch(() => {});
 
@@ -221,6 +246,7 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
       } catch (e) {
         connectingRef.current = false;
         if (!mountedRef.current) return;
+        console.error(`Terminal ${tabId}: connection failed —`, e);
         term.writeln(`\x1b[38;5;196mConnection failed: ${e}\x1b[0m`);
         term.writeln(`\x1b[38;5;242mPress any key to retry...\x1b[0m`);
       }

@@ -9,7 +9,8 @@ const origConsole = {
 
 /**
  * Global debug logger — always-on. Intercepts console.log/warn/error and
- * captures uncaught errors. Runs from AppShell.
+ * captures uncaught errors. Subscribes to connection status changes.
+ * Runs from AppShell.
  */
 export function useDebugLogger() {
   const addDebugLog = useAppStore((s) => s.addDebugLog);
@@ -28,6 +29,20 @@ export function useDebugLogger() {
     addRef.current(`[${ts()}] Workspaces: ${state.workspaces.map((w) => w.coderName).join(", ") || "none"}`);
     addRef.current(`[${ts()}] Sessions: ${Object.keys(state.sessions).length}`);
     addRef.current(`[${ts()}] Tabs: ${state.terminalTabs.length}`);
+    addRef.current(`[${ts()}] Hydrated: ${state._hasHydrated}`);
+
+    // Subscribe to connection status changes
+    let prevStatus = state.connection.status;
+    let prevError = state.connection.error;
+    const unsubscribe = useAppStore.subscribe((s) => {
+      const { status, error } = s.connection;
+      if (status !== prevStatus || error !== prevError) {
+        const errStr = error ? ` (${error})` : "";
+        addRef.current(`[${ts()}] CONNECTION: ${prevStatus} → ${status}${errStr}`);
+        prevStatus = status;
+        prevError = error;
+      }
+    });
 
     // Override console
     console.log = (...args: unknown[]) => {
@@ -56,6 +71,7 @@ export function useDebugLogger() {
     window.addEventListener("unhandledrejection", onRejection);
 
     return () => {
+      unsubscribe();
       console.log = origConsole.log;
       console.warn = origConsole.warn;
       console.error = origConsole.error;

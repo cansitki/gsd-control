@@ -201,10 +201,12 @@ export function useSSH() {
   const connect = useCallback(async () => {
     const profile = config.sshProfiles.find((p) => p.id === config.activeProfileId);
     if (!profile) {
+      console.error("SSH connect: no profile configured (activeProfileId:", config.activeProfileId, ", profiles:", config.sshProfiles.length, ")");
       setConnectionStatus("error", "No SSH profile configured");
       return false;
     }
 
+    console.log("SSH connect: attempting with profile", profile.name, "→", profile.coderUser, "@", profile.host || "(coder alias)");
     setConnectionStatus("connecting");
     try {
       // Write SSH key from vault to temp file if the profile has one
@@ -230,13 +232,16 @@ export function useSSH() {
         }
       );
       if (result.connected) {
+        console.log("SSH connect: success ✓");
         setConnectionStatus("connected");
         return true;
       } else {
+        console.error("SSH connect: failed —", result.error);
         setConnectionStatus("error", result.error ?? "Connection failed");
         return false;
       }
     } catch (e) {
+      console.error("SSH connect: exception —", e);
       setConnectionStatus("error", String(e));
       return false;
     }
@@ -358,8 +363,10 @@ export function useSSH() {
     if (!hasHydrated) return;
 
     const init = async () => {
+      console.log("SSH init: hydration complete, attempting auto-connect...");
       const connected = await connect();
       if (connected) {
+        console.log("SSH init: connected, starting data fetch + 30s poll");
         await fetchGSDData();
         // Poll for updates every 30 seconds
         pollRef.current = setInterval(async () => {
@@ -369,6 +376,8 @@ export function useSSH() {
             console.error("Poll error:", e);
           }
         }, 30_000);
+      } else {
+        console.warn("SSH init: auto-connect failed — no polling started");
       }
     };
     init();

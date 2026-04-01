@@ -31,6 +31,7 @@ function Settings() {
     const profile = config.sshProfiles.find((p) => p.id === config.activeProfileId);
     if (!profile) return;
 
+    console.log("Settings: reconnecting with profile", profile.name, "→", profile.coderUser);
     setReconnecting(true);
     setConnectionStatus("connecting");
     try {
@@ -50,11 +51,14 @@ function Settings() {
         { host: profile.host, user: profile.user, keyPath, coderUser: profile.coderUser }
       );
       if (result.connected) {
+        console.log("Settings: reconnect success ✓");
         setConnectionStatus("connected");
       } else {
+        console.error("Settings: reconnect failed —", result.error);
         setConnectionStatus("error", result.error ?? "Connection failed");
       }
     } catch (e) {
+      console.error("Settings: reconnect exception —", e);
       setConnectionStatus("error", String(e));
     }
     setReconnecting(false);
