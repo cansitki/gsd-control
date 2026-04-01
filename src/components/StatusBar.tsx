@@ -18,7 +18,7 @@ function StatusBar() {
             className={`w-1.5 h-1.5 rounded-full ${
               connection.status === "connected"
                 ? "bg-accent-green"
-                : connection.status === "connecting"
+                : connection.status === "connecting" || connection.status === "reconnecting"
                   ? "bg-accent-amber animate-pulse"
                   : "bg-accent-red"
             }`}
@@ -26,7 +26,9 @@ function StatusBar() {
           <span className="text-base-muted">
             {connection.status === "connected"
               ? connection.host.split(".")[0]
-              : connection.status}
+              : connection.status === "reconnecting"
+                ? "Reconnecting..."
+                : connection.status}
           </span>
         </div>
         {connection.error && (

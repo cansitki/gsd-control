@@ -195,10 +195,16 @@ function Dashboard() {
             className={`text-2xl font-bold mt-1 ${
               connection.status === "connected"
                 ? "text-accent-green"
-                : "text-accent-red"
+                : connection.status === "reconnecting"
+                  ? "text-accent-amber animate-pulse"
+                  : "text-accent-red"
             }`}
           >
-            {connection.status === "connected" ? "Online" : "Offline"}
+            {connection.status === "connected"
+              ? "Online"
+              : connection.status === "reconnecting"
+                ? "Reconnecting..."
+                : "Offline"}
           </p>
           {healthSummary.total > 0 && (
             <p className="text-xs text-base-muted mt-1">
