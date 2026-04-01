@@ -32,6 +32,12 @@ export interface GSDStatus {
   progressPercent: number | null;
 }
 
+export interface TmuxSessionInfo {
+  name: string;
+  idle: number;
+  attached: boolean;
+}
+
 export interface GSDSession {
   id: string;
   workspace: string;
@@ -42,6 +48,7 @@ export interface GSDSession {
   isRunning: boolean;
   lastUpdated: number;
   logs: string[];
+  tmuxSessions?: TmuxSessionInfo[];
 }
 
 export interface SSHConnection {

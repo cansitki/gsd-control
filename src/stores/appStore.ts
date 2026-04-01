@@ -229,5 +229,6 @@ export function createEmptySession(
     isRunning: false,
     lastUpdated: Date.now(),
     logs: [],
+    tmuxSessions: [],
   };
 }

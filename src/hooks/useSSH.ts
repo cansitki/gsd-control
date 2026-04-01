@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore, createEmptySession } from "../stores/appStore";
-import type { GSDStatus } from "../lib/types";
+import type { GSDStatus, TmuxSessionInfo } from "../lib/types";
 import { emptyStatus } from "../lib/logParser";
 
 // Python script that runs on the workspace and outputs JSON with all GSD data
@@ -288,6 +288,13 @@ export function useSSH() {
               status.tokensWrite = `${writeK.toFixed(0)}K`;
             }
 
+            // Map sessionDetails into TmuxSessionInfo[]
+            const tmuxSessions: TmuxSessionInfo[] = details.map((d) => ({
+              name: d.name,
+              idle: d.idle,
+              attached: false, // Python script doesn't track attached status yet
+            }));
+
             setSession({
               id: sessionId,
               workspace: ws.displayName,
@@ -298,6 +305,7 @@ export function useSSH() {
               isRunning,
               lastUpdated: Date.now(),
               logs: [],
+              tmuxSessions,
             });
           } else {
             // No GSD data found — create empty session
