@@ -257,7 +257,7 @@ function TerminalTabs() {
       </div>
 
       {/* Terminal area — takes all remaining space */}
-      <div className="flex-1 min-h-0 relative bg-[#0c0f17]">
+      <div className="flex-1 min-h-0 relative bg-[#141a14]">
         {terminalTabs.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -284,7 +284,7 @@ function TerminalTabs() {
                 onClick={() => setActiveTerminal(tab.id)}
               >
                 {/* Grid cell label */}
-                <div className="absolute top-0 left-0 right-0 z-10 px-2 py-0.5 bg-[#0c0f17]/80">
+                <div className="absolute top-0 left-0 right-0 z-10 px-2 py-0.5 bg-[#141a14]/80">
                   <span className="text-[9px] text-base-muted truncate block">
                     {tab.title}
                   </span>
@@ -306,7 +306,7 @@ function TerminalTabs() {
             }).map((_, i) => (
               <div
                 key={`empty-${i}`}
-                className="flex items-center justify-center bg-[#0c0f17]"
+                className="flex items-center justify-center bg-[#141a14]"
               >
                 <button
                   onClick={handleNewTab}

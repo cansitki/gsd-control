@@ -53,16 +53,55 @@ impl SshManager {
     }
 
     pub async fn connect(&mut self) -> Result<(), String> {
-        if self.config.host.is_empty() {
-            return Err("No SSH host configured. Set it in Settings.".to_string());
+        if self.config.coder_user.is_empty() {
+            return Err("No Coder username configured.".to_string());
         }
-        // Try to connect via the host directly to verify connectivity
+
+        // Test connection via Coder SSH alias with the first available workspace
+        // Use a simple echo command to verify connectivity
+        let mut args = vec![
+            "-o".to_string(), "StrictHostKeyChecking=no".to_string(),
+            "-o".to_string(), "ConnectTimeout=15".to_string(),
+            "-o".to_string(), "BatchMode=yes".to_string(),
+        ];
+
+        // Add key file if configured
+        if !self.config.key_path.is_empty() {
+            args.push("-i".to_string());
+            args.push(self.config.key_path.clone());
+        }
+
+        // Try connecting via the host directly first (with key)
+        if !self.config.host.is_empty() {
+            args.push(format!("{}@{}", self.config.user, self.config.host));
+            args.push("echo ok".to_string());
+
+            let output = Command::new("ssh")
+                .args(&args)
+                .output()
+                .await
+                .map_err(|e| format!("SSH connect failed: {}", e))?;
+
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            if stdout.trim() == "ok" {
+                self.connected = true;
+                return Ok(());
+            }
+
+            // Direct host failed — try via Coder SSH alias instead
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            log::warn!("Direct SSH failed ({}), trying Coder alias...", stderr.trim());
+        }
+
+        // Try Coder SSH alias: main.<coder_user>.<coder_user>.coder
+        // This uses the SSH config that Coder CLI sets up
+        let alias_host = format!("main.{}.{}.coder", self.config.coder_user, self.config.coder_user);
         let output = Command::new("ssh")
             .args([
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "ConnectTimeout=15",
                 "-o", "BatchMode=yes",
-                &format!("{}@{}", self.config.user, self.config.host),
+                &alias_host,
                 "echo ok",
             ])
             .output()
@@ -76,6 +115,7 @@ impl SshManager {
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             Err(format!("Connection test failed: {}", stderr.trim()))
+        }
         }
     }
 

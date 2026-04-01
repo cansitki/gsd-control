@@ -88,11 +88,11 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
       fastScrollModifier: "alt",
       convertEol: false,
       theme: {
-        background: "#0c0f17",
+        background: "#141a14",
         foreground: "#c8cdd8",
         cursor: "#f97316",
         selectionBackground: "rgba(249, 115, 22, 0.3)",
-        black: "#0c0f17",
+        black: "#141a14",
         red: "#ef4444",
         green: "#34d399",
         yellow: "#fbbf24",
@@ -261,7 +261,7 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
   return (
     <div
       ref={containerRef}
-      className="w-full h-full bg-[#0c0f17] overflow-hidden"
+      className="w-full h-full bg-[#141a14] overflow-hidden"
     />
   );
 }

@@ -14,8 +14,8 @@ html, body, #root {
   height: 100%;
   overflow: hidden;
   font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
-  background: #0c0f17;
-  color: #c8cdd8;
+  background: #141a14;
+  color: #d4d8c8;
 }
 
 ::-webkit-scrollbar {
@@ -24,19 +24,19 @@ html, body, #root {
 }
 
 ::-webkit-scrollbar-track {
-  background: #131722;
+  background: #1b231b;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2a3040;
+  background: #3a4a3a;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a4050;
+  background: #4a5a4a;
 }
 
 ::selection {
-  background: rgba(249, 115, 22, 0.3);
+  background: rgba(200, 145, 74, 0.3);
   color: #fff;
 }

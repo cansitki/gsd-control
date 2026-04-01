@@ -5,18 +5,18 @@ export default {
     extend: {
       colors: {
         base: {
-          bg: "#0c0f17",
-          surface: "#131722",
-          border: "#1e2333",
-          text: "#c8cdd8",
-          muted: "#6b7280",
+          bg: "#141a14",
+          surface: "#1b231b",
+          border: "#2a352a",
+          text: "#d4d8c8",
+          muted: "#7a8570",
         },
         accent: {
-          orange: "#f97316",
-          green: "#22c55e",
-          blue: "#3b82f6",
-          red: "#ef4444",
-          amber: "#f59e0b",
+          orange: "#c8914a",
+          green: "#6abf69",
+          blue: "#6b9eca",
+          red: "#c45c5c",
+          amber: "#d4a843",
         },
       },
     },
