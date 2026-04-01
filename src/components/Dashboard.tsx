@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useSSH } from "../hooks/useSSH";
 import SessionCard from "./SessionCard";
@@ -6,16 +6,91 @@ import CostChart from "./CostChart";
 import { useCostHistory } from "../hooks/useCostHistory";
 import type { DateRange } from "../lib/types";
 
-const DEFAULT_DATE_RANGE: DateRange = { preset: 'month' };
+type DatePreset = DateRange["preset"];
+
+const PRESETS: { key: DatePreset; label: string }[] = [
+  { key: "today", label: "Today" },
+  { key: "week", label: "Week" },
+  { key: "month", label: "Month" },
+  { key: "custom", label: "Custom" },
+];
+
+function formatRangeLabel(range: DateRange): string {
+  switch (range.preset) {
+    case "today":
+      return "Today";
+    case "week":
+      return "This Week";
+    case "month":
+      return "This Month";
+    case "custom": {
+      if (range.start && range.end) {
+        const fmtDate = (iso: string) => {
+          const d = new Date(iso + "T00:00:00");
+          return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        };
+        return `${fmtDate(range.start)} – ${fmtDate(range.end)}`;
+      }
+      return "Custom Range";
+    }
+    default:
+      return "Cost History";
+  }
+}
+
+function formatTimeAgo(ts: number): string {
+  if (ts === 0) return "never";
+  const seconds = Math.floor((Date.now() - ts) / 1000);
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
 
 function Dashboard() {
   const sessions = useAppStore((s) => s.sessions);
   const events = useAppStore((s) => s.events);
   const connection = useAppStore((s) => s.connection);
-  const [dateRange] = useState<DateRange>(DEFAULT_DATE_RANGE);
+  const lastPollTime = useAppStore((s) => s.lastPollTime);
+  const workspaceHealth = useAppStore((s) => s.workspaceHealth);
+  const workspaces = useAppStore((s) => s.workspaces);
+
+  const [dateRange, setDateRange] = useState<DateRange>({ preset: "week" });
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+
   const costHistory = useCostHistory(dateRange);
   const { fetchGSDData } = useSSH();
   const [refreshing, setRefreshing] = useState(false);
+
+  // Ticking "last poll" display
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (lastPollTime === 0) return;
+    const id = setInterval(() => setTick((t) => t + 1), 5000);
+    return () => clearInterval(id);
+  }, [lastPollTime]);
+
+  const handlePresetClick = useCallback((preset: DatePreset) => {
+    if (preset === "custom") {
+      // When switching to custom, set range with current custom dates (or empty)
+      setDateRange((prev) => ({
+        preset: "custom",
+        start: prev.preset === "custom" ? prev.start : "",
+        end: prev.preset === "custom" ? prev.end : "",
+      }));
+    } else {
+      setDateRange({ preset });
+    }
+  }, []);
+
+  const handleCustomApply = useCallback(() => {
+    if (customStart && customEnd) {
+      setDateRange({ preset: "custom", start: customStart, end: customEnd });
+    }
+  }, [customStart, customEnd]);
 
   const sessionList = Object.values(sessions);
   const activeSessions = sessionList.filter((s) => s.isRunning);
@@ -24,7 +99,6 @@ function Dashboard() {
     0
   );
 
-  // Parse token strings back to numbers for summing
   const parseTokenStr = (s: string | null): number => {
     if (!s) return 0;
     const m = s.match(/([\d.]+)([MK])/);
@@ -48,24 +122,39 @@ function Dashboard() {
     return n.toString();
   };
 
+  // Workspace connection health summary
+  const healthSummary = useMemo(() => {
+    const total = workspaces.length;
+    const healthyCount = Object.values(workspaceHealth).filter(
+      (s) => s === "ok"
+    ).length;
+    return { healthy: healthyCount, total };
+  }, [workspaceHealth, workspaces]);
+
+  const rangeLabel = formatRangeLabel(dateRange);
   const recentEvents = events.slice(0, 10);
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      {/* Header with refresh */}
+      {/* Header with last-poll and refresh */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-bold text-base-text">Dashboard</h2>
-        <button
-          onClick={async () => {
-            setRefreshing(true);
-            await fetchGSDData();
-            setRefreshing(false);
-          }}
-          disabled={refreshing}
-          className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text hover:border-accent-orange/30 transition-colors disabled:opacity-50"
-        >
-          {refreshing ? "Refreshing..." : "↻ Refresh"}
-        </button>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-base-muted">
+            Last poll: {formatTimeAgo(lastPollTime)}
+          </span>
+          <button
+            onClick={async () => {
+              setRefreshing(true);
+              await fetchGSDData();
+              setRefreshing(false);
+            }}
+            disabled={refreshing}
+            className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text hover:border-accent-orange/30 transition-colors disabled:opacity-50"
+          >
+            {refreshing ? "Refreshing..." : "↻ Refresh"}
+          </button>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -111,15 +200,63 @@ function Dashboard() {
           >
             {connection.status === "connected" ? "Online" : "Offline"}
           </p>
+          {healthSummary.total > 0 && (
+            <p className="text-xs text-base-muted mt-1">
+              {healthSummary.healthy}/{healthSummary.total} ws healthy
+            </p>
+          )}
         </div>
       </div>
 
-      {/* Cost chart */}
+      {/* Date range selector + Cost chart */}
       <div className="mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          {PRESETS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => handlePresetClick(key)}
+              className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+                dateRange.preset === key
+                  ? "bg-accent-orange/20 text-accent-orange border-accent-orange/30"
+                  : "border-base-border text-base-muted hover:text-base-text hover:border-accent-orange/30"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Custom date inputs */}
+        {dateRange.preset === "custom" && (
+          <div className="flex items-center gap-2 mb-3">
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              className="text-xs px-2 py-1.5 rounded border border-base-border bg-base-bg text-base-text"
+            />
+            <span className="text-xs text-base-muted">–</span>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              className="text-xs px-2 py-1.5 rounded border border-base-border bg-base-bg text-base-text"
+            />
+            <button
+              onClick={handleCustomApply}
+              disabled={!customStart || !customEnd}
+              className="text-xs px-3 py-1.5 rounded border border-accent-orange/30 text-accent-orange hover:bg-accent-orange/10 transition-colors disabled:opacity-50"
+            >
+              Apply
+            </button>
+          </div>
+        )}
+
         <CostChart
           data={costHistory.data}
           totalCost={costHistory.totalCost}
           loading={costHistory.loading}
+          rangeLabel={rangeLabel}
         />
       </div>
 

@@ -153,6 +153,17 @@ function SessionCard({ session }: Props) {
         </div>
       )}
 
+      {/* Terminal preview */}
+      {session.terminalPreview && session.terminalPreview.length > 0 && (
+        <div className="mb-2 bg-base-bg rounded p-2 font-mono text-[10px] text-base-muted leading-tight">
+          {session.terminalPreview.map((line, i) => (
+            <div key={i} className="whitespace-pre overflow-hidden text-ellipsis">
+              {line}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Milestone */}
       {status.milestone && (
         <div className="mb-2">

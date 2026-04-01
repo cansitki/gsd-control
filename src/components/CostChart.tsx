@@ -5,6 +5,7 @@ interface CostChartProps {
   data: CostDataPoint[];
   totalCost: number;
   loading: boolean;
+  rangeLabel?: string;
 }
 
 const PROJECT_COLORS = [
@@ -28,7 +29,7 @@ interface TooltipData {
   total: number;
 }
 
-function CostChart({ data, totalCost, loading }: CostChartProps) {
+function CostChart({ data, totalCost, loading, rangeLabel = "Cost History" }: CostChartProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
 
   const { dates, projects, dailyStacks, maxDayTotal } = useMemo(() => {
@@ -63,7 +64,7 @@ function CostChart({ data, totalCost, loading }: CostChartProps) {
     return (
       <div className="bg-base-surface border border-base-border rounded-lg p-4">
         <p className="text-xs text-base-muted uppercase tracking-wider mb-3">
-          Cost History (14 days)
+          {rangeLabel}
         </p>
         <div className="flex items-center justify-center h-40">
           <p className="text-base-muted text-xs animate-pulse">
@@ -78,7 +79,7 @@ function CostChart({ data, totalCost, loading }: CostChartProps) {
     return (
       <div className="bg-base-surface border border-base-border rounded-lg p-4">
         <p className="text-xs text-base-muted uppercase tracking-wider mb-3">
-          Cost History (14 days)
+          {rangeLabel}
         </p>
         <div className="flex items-center justify-center h-40">
           <p className="text-base-muted text-xs">No cost data available</p>
@@ -149,7 +150,7 @@ function CostChart({ data, totalCost, loading }: CostChartProps) {
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-base-muted uppercase tracking-wider">
-          Cost History (14 days)
+          {rangeLabel}
         </p>
         <p className="text-sm font-bold text-accent-amber">
           ${totalCost.toFixed(2)}
