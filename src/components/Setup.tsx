@@ -28,6 +28,9 @@ function Setup() {
   const [discovering, setDiscovering] = useState(false);
   const [discovered, setDiscovered] = useState<{ workspace: string; projects: string[] }[]>([]);
 
+  const [testing, setTesting] = useState(false);
+  const [connectionOk, setConnectionOk] = useState(false);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -40,6 +43,45 @@ function Setup() {
       setKeyContent(ev.target?.result as string);
     };
     reader.readAsText(file);
+    // Reset connection status when key changes
+    setConnectionOk(false);
+  };
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setError("");
+    try {
+      // Write SSH key to temp if provided
+      let keyPath = "";
+      if (keyContent) {
+        keyPath = await invoke<string>("write_ssh_key", {
+          profileId: "setup-temp",
+          keyContent,
+        });
+      }
+
+      // Test connection
+      const result = await invoke<{ connected: boolean; error: string | null }>(
+        "ssh_connect",
+        { host: sshHost, user: sshUser, keyPath, coderUser }
+      );
+
+      if (result.connected) {
+        setConnectionOk(true);
+        setError("");
+        // Auto-advance to step 2 and start discovery
+        setStep(2);
+        // Trigger discovery automatically
+        setTimeout(() => handleDiscover(), 300);
+      } else {
+        setConnectionOk(false);
+        setError(result.error || "Connection failed — check host, user, key, and coder username");
+      }
+    } catch (e) {
+      setConnectionOk(false);
+      setError(String(e));
+    }
+    setTesting(false);
   };
 
   const handleDiscover = async () => {
@@ -244,7 +286,7 @@ function Setup() {
         <div>
           <label className="block text-[10px] text-base-muted mb-1">SSH Host</label>
           <input
-            type="text" value={sshHost} onChange={(e) => setSshHost(e.target.value)}
+            type="text" value={sshHost} onChange={(e) => { setSshHost(e.target.value); setConnectionOk(false); }}
             placeholder="e.g. ec2-xx-xx-xx-xx.compute.amazonaws.com"
             className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none"
           />
@@ -253,7 +295,7 @@ function Setup() {
           <div>
             <label className="block text-[10px] text-base-muted mb-1">SSH User</label>
             <input
-              type="text" value={sshUser} onChange={(e) => setSshUser(e.target.value)}
+              type="text" value={sshUser} onChange={(e) => { setSshUser(e.target.value); setConnectionOk(false); }}
               placeholder="admin"
               className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none"
             />
@@ -261,7 +303,7 @@ function Setup() {
           <div>
             <label className="block text-[10px] text-base-muted mb-1">Coder Username</label>
             <input
-              type="text" value={coderUser} onChange={(e) => setCoderUser(e.target.value)}
+              type="text" value={coderUser} onChange={(e) => { setCoderUser(e.target.value); setConnectionOk(false); }}
               placeholder="e.g. johndoe"
               className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none"
             />
@@ -285,14 +327,15 @@ function Setup() {
           )}
         </div>
       </div>
+      {error && step === 1 && <p className="text-[10px] text-accent-red mt-3">{error}</p>}
       <div className="flex justify-between mt-6">
         <button onClick={() => setStep(0)} className="text-[11px] text-base-muted hover:text-base-text">Back</button>
         <button
-          onClick={() => setStep(2)}
-          disabled={!sshHost || !coderUser}
+          onClick={handleTestConnection}
+          disabled={!sshHost || !coderUser || testing}
           className="px-4 py-1.5 rounded bg-accent-orange text-white text-xs hover:opacity-90 transition-opacity disabled:opacity-30"
         >
-          Next
+          {testing ? "Testing connection..." : connectionOk ? "✓ Connected — Next" : "Test & Continue"}
         </button>
       </div>
     </div>,

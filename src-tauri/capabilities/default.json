@@ -18,6 +18,6 @@
     "updater:default",
     "process:allow-restart",
     "stronghold:default",
-    "path:default"
+    "core:path:default"
   ]
 }
