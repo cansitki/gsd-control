@@ -421,6 +421,15 @@ function Sidebar() {
     workspace: string;
     project: { path: string; displayName: string };
   } | null>(null);
+  const [confirmRemoveWorkspace, setConfirmRemoveWorkspace] = useState<{
+    coderName: string;
+    displayName: string;
+  } | null>(null);
+  const [confirmRemoveProject, setConfirmRemoveProject] = useState<{
+    workspace: string;
+    projectPath: string;
+    projectName: string;
+  } | null>(null);
   const [sessionPicker, setSessionPicker] = useState<{
     workspace: string;
     wsDisplay: string;
@@ -499,12 +508,12 @@ function Sidebar() {
                     <span className="text-sm leading-none">+</span>
                   </button>
                   <button
-                    onClick={() => {
-                      const store = useAppStore.getState();
-                      useAppStore.setState({
-                        workspaces: store.workspaces.filter((w) => w.coderName !== ws.coderName),
-                      });
-                    }}
+                    onClick={() =>
+                      setConfirmRemoveWorkspace({
+                        coderName: ws.coderName,
+                        displayName: ws.displayName,
+                      })
+                    }
                     className="text-base-muted hover:text-accent-red w-4 h-4 flex items-center justify-center rounded hover:bg-base-bg"
                     title="Remove workspace"
                   >
@@ -694,16 +703,87 @@ function Sidebar() {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                removeProject(
-                  contextMenu.workspace,
-                  contextMenu.project.path
-                );
+                setConfirmRemoveProject({
+                  workspace: contextMenu.workspace,
+                  projectPath: contextMenu.project.path,
+                  projectName: contextMenu.project.displayName,
+                });
                 setContextMenu(null);
               }}
               className="w-full text-left px-3 py-1.5 text-xs text-accent-red hover:bg-base-bg transition-colors"
             >
               ✕ Remove Project
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm remove workspace modal */}
+      {confirmRemoveWorkspace && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-base-surface border border-base-border rounded-lg p-5 w-80 shadow-xl">
+            <h3 className="text-xs font-bold text-base-text mb-2">
+              Remove Workspace
+            </h3>
+            <p className="text-xs text-base-muted mb-4">
+              Remove workspace <span className="text-base-text font-semibold">{confirmRemoveWorkspace.displayName}</span> and all its projects from the sidebar? (Does not delete remote data.)
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setConfirmRemoveWorkspace(null)}
+                className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const store = useAppStore.getState();
+                  useAppStore.setState({
+                    workspaces: store.workspaces.filter(
+                      (w) => w.coderName !== confirmRemoveWorkspace.coderName
+                    ),
+                  });
+                  setConfirmRemoveWorkspace(null);
+                }}
+                className="text-xs px-3 py-1.5 rounded bg-accent-red text-white hover:opacity-90 transition-opacity"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm remove project modal */}
+      {confirmRemoveProject && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-base-surface border border-base-border rounded-lg p-5 w-80 shadow-xl">
+            <h3 className="text-xs font-bold text-base-text mb-2">
+              Remove Project
+            </h3>
+            <p className="text-xs text-base-muted mb-4">
+              Remove <span className="text-base-text font-semibold">{confirmRemoveProject.projectName}</span> from the sidebar? (Does not delete remote data.)
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setConfirmRemoveProject(null)}
+                className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  removeProject(
+                    confirmRemoveProject.workspace,
+                    confirmRemoveProject.projectPath
+                  );
+                  setConfirmRemoveProject(null);
+                }}
+                className="text-xs px-3 py-1.5 rounded bg-accent-red text-white hover:opacity-90 transition-opacity"
+              >
+                Remove
+              </button>
+            </div>
           </div>
         </div>
       )}

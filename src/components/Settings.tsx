@@ -328,15 +328,14 @@ function Settings() {
             )}
           </div>
           <Field
-            label="GitHub Token (optional — for private repos)"
+            label="GitHub Token (optional)"
             value={config.githubToken}
             onChange={(v) => updateConfig({ githubToken: v })}
             placeholder="ghp_..."
             type="password"
           />
           <p className="text-xs text-base-muted/60">
-            Requires a token with <span className="text-base-muted">repo</span> scope.{" "}
-            Create one at GitHub → Settings → Developer settings → Personal access tokens.
+            Optional. Only needed for private repositories.
           </p>
         </div>
       </section>

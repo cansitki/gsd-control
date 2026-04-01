@@ -8,27 +8,18 @@ const origConsole = {
 };
 
 /**
- * Global debug logger — intercepts console.log/warn/error and captures
- * uncaught errors when debug mode is enabled. Runs from AppShell.
+ * Global debug logger — always-on. Intercepts console.log/warn/error and
+ * captures uncaught errors. Runs from AppShell.
  */
 export function useDebugLogger() {
-  const debugEnabled = useAppStore((s) => s.debugEnabled);
   const addDebugLog = useAppStore((s) => s.addDebugLog);
   const addRef = useRef(addDebugLog);
   addRef.current = addDebugLog;
 
   useEffect(() => {
-    if (!debugEnabled) {
-      // Restore original console
-      console.log = origConsole.log;
-      console.warn = origConsole.warn;
-      console.error = origConsole.error;
-      return;
-    }
-
     const ts = () => new Date().toISOString().slice(11, 23);
 
-    // Log app state snapshot on enable
+    // Log app state snapshot on mount
     const state = useAppStore.getState();
     addRef.current(`[${ts()}] DEBUG ENABLED`);
     addRef.current(`[${ts()}] Version: ${state.config ? "ok" : "missing"}`);
@@ -71,5 +62,5 @@ export function useDebugLogger() {
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onRejection);
     };
-  }, [debugEnabled]);
+  }, []);
 }

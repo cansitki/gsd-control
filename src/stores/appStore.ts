@@ -54,10 +54,8 @@ interface AppState {
   config: AppConfig;
   updateConfig: (updates: Partial<AppConfig>) => void;
 
-  // Debug
-  debugEnabled: boolean;
+  // Debug — always on
   debugLogs: string[];
-  setDebugEnabled: (enabled: boolean) => void;
   addDebugLog: (log: string) => void;
   clearDebugLogs: () => void;
 }
@@ -182,9 +180,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     })),
 
   // Debug — always on, rolling log buffer
-  debugEnabled: true,
   debugLogs: [],
-  setDebugEnabled: (enabled) => set({ debugEnabled: enabled }),
   addDebugLog: (log) =>
     set((state) => ({
       debugLogs: [...state.debugLogs, log].slice(-5000),
@@ -210,7 +206,6 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     currentView: state.currentView,
     selectedProject: state.selectedProject,
     terminalLayout: state.terminalLayout,
-    debugEnabled: state.debugEnabled,
   }),
 }));
 

@@ -11,6 +11,7 @@ interface Props {
 function SessionCard({ session }: Props) {
   const { status, displayName, workspace, isRunning, project } = session;
   const [launching, setLaunching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const workspaces = useAppStore((s) => s.workspaces);
   const addTerminalTab = useAppStore((s) => s.addTerminalTab);
   const setCurrentView = useAppStore((s) => s.setCurrentView);
@@ -18,8 +19,14 @@ function SessionCard({ session }: Props) {
   const wsConfig = workspaces.find((w) => w.displayName === workspace);
   const coderName = wsConfig?.coderName ?? workspace;
 
+  const showError = (msg: string) => {
+    setError(msg);
+    setTimeout(() => setError(null), 5000);
+  };
+
   const handleStartAuto = async () => {
     setLaunching(true);
+    setError(null);
     try {
       await invoke("gsd_start_auto", {
         workspace: coderName,
@@ -28,11 +35,13 @@ function SessionCard({ session }: Props) {
       });
     } catch (e) {
       console.error("Failed to start GSD:", e);
+      showError(`Failed to start: ${e}`);
     }
     setLaunching(false);
   };
 
   const handleStop = async () => {
+    setError(null);
     try {
       await invoke("gsd_stop", {
         workspace: coderName,
@@ -40,10 +49,12 @@ function SessionCard({ session }: Props) {
       });
     } catch (e) {
       console.error("Failed to stop GSD:", e);
+      showError(`Failed to stop: ${e}`);
     }
   };
 
   const handleAttachTmux = async () => {
+    setError(null);
     try {
       // List tmux sessions on this workspace
       const sessions = await invoke<string[]>("list_tmux_sessions", {
@@ -87,6 +98,7 @@ function SessionCard({ session }: Props) {
       setCurrentView("terminal");
     } catch (e) {
       console.error("Failed to attach tmux:", e);
+      showError(`Failed to attach: ${e}`);
     }
   };
 
@@ -238,6 +250,13 @@ function SessionCard({ session }: Props) {
           </>
         )}
       </div>
+
+      {/* Error feedback */}
+      {error && (
+        <div className="mt-2 text-xs text-accent-red bg-accent-red/10 rounded px-2 py-1">
+          {error}
+        </div>
+      )}
     </div>
   );
 }
