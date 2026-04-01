@@ -125,6 +125,34 @@ function SessionCard({ session }: Props) {
         <span className="text-xs text-base-muted">{workspace}</span>
       </div>
 
+      {/* Tmux sessions */}
+      {session.tmuxSessions && session.tmuxSessions.length > 0 && (
+        <div className="mb-2 flex items-center gap-2 text-xs">
+          <span className="text-accent-blue font-medium">
+            {session.tmuxSessions.length}{" "}
+            {session.tmuxSessions.length === 1 ? "session" : "sessions"}
+          </span>
+          {(() => {
+            // Show state of the most active (lowest idle) session
+            const sorted = [...session.tmuxSessions].sort(
+              (a, b) => a.idle - b.idle
+            );
+            const top = sorted[0];
+            if (top.idle < 60) {
+              return (
+                <span className="text-accent-blue">active</span>
+              );
+            }
+            const mins = Math.floor(top.idle / 60);
+            const hours = Math.floor(mins / 60);
+            const idleStr = hours > 0 ? `idle ${hours}h` : `idle ${mins}m`;
+            return (
+              <span className="text-base-muted">{idleStr}</span>
+            );
+          })()}
+        </div>
+      )}
+
       {/* Milestone */}
       {status.milestone && (
         <div className="mb-2">

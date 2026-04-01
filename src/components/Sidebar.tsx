@@ -634,6 +634,11 @@ function Sidebar() {
                       }`}
                     />
                     <span className="truncate">{proj.displayName}</span>
+                    {session?.tmuxSessions && session.tmuxSessions.length > 0 && (
+                      <span className="text-accent-blue text-xs flex-shrink-0">
+                        ({session.tmuxSessions.length})
+                      </span>
+                    )}
                     {session?.status.cost != null && (
                       <span className="ml-auto text-accent-amber text-xs">
                         ${session.status.cost.toFixed(0)}
