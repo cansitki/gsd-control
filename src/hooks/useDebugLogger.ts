@@ -36,10 +36,13 @@ export function useDebugLogger() {
     let prevError = state.connection.error;
     const unsubscribe = useAppStore.subscribe((s) => {
       const { status, error } = s.connection;
-      if (status !== prevStatus || error !== prevError) {
+      if (status !== prevStatus) {
         const errStr = error ? ` (${error})` : "";
         addRef.current(`[${ts()}] CONNECTION: ${prevStatus} → ${status}${errStr}`);
         prevStatus = status;
+        prevError = error;
+      } else if (error !== prevError) {
+        addRef.current(`[${ts()}] CONNECTION ERROR: ${error}`);
         prevError = error;
       }
     });
