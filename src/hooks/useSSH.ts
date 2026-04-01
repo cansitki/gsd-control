@@ -211,15 +211,20 @@ export function useSSH() {
     setConnectionStatus("connecting");
     try {
       // Write SSH key from vault to temp file if the profile has one
+      // Stronghold may fail on some builds — proceed without key (Coder aliases don't need it)
       let keyPath = "";
       if (profile.hasKey) {
-        const { getSecret, SECRET_KEYS } = await import("../lib/secrets");
-        const keyContent = await getSecret(SECRET_KEYS.sshKey(profile.id));
-        if (keyContent) {
-          keyPath = await invoke<string>("write_ssh_key", {
-            profileId: profile.id,
-            keyContent,
-          });
+        try {
+          const { getSecret, SECRET_KEYS } = await import("../lib/secrets");
+          const keyContent = await getSecret(SECRET_KEYS.sshKey(profile.id));
+          if (keyContent) {
+            keyPath = await invoke<string>("write_ssh_key", {
+              profileId: profile.id,
+              keyContent,
+            });
+          }
+        } catch (e) {
+          console.warn("SSH connect: Stronghold key retrieval failed, proceeding without key —", e);
         }
       }
 

@@ -37,13 +37,17 @@ function Settings() {
     try {
       let keyPath = "";
       if (profile.hasKey) {
-        const { getSecret, SECRET_KEYS } = await import("../lib/secrets");
-        const keyContent = await getSecret(SECRET_KEYS.sshKey(profile.id));
-        if (keyContent) {
-          keyPath = await invoke<string>("write_ssh_key", {
-            profileId: profile.id,
-            keyContent,
-          });
+        try {
+          const { getSecret, SECRET_KEYS } = await import("../lib/secrets");
+          const keyContent = await getSecret(SECRET_KEYS.sshKey(profile.id));
+          if (keyContent) {
+            keyPath = await invoke<string>("write_ssh_key", {
+              profileId: profile.id,
+              keyContent,
+            });
+          }
+        } catch (e) {
+          console.warn("Settings: Stronghold key retrieval failed, proceeding without key —", e);
         }
       }
       const result = await invoke<{ connected: boolean; error: string | null }>(
