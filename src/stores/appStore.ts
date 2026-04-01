@@ -58,6 +58,12 @@ interface AppState {
   debugLogs: string[];
   addDebugLog: (log: string) => void;
   clearDebugLogs: () => void;
+
+  // Polling
+  lastPollTime: number;
+  setLastPollTime: (time: number) => void;
+  workspaceHealth: Record<string, 'ok' | 'error'>;
+  setWorkspaceHealth: (workspace: string, status: 'ok' | 'error') => void;
 }
 
 const DEFAULT_CONFIG: AppConfig = {
@@ -186,6 +192,15 @@ export const useAppStore = create<AppState>()(persist((set) => ({
       debugLogs: [...state.debugLogs, log].slice(-5000),
     })),
   clearDebugLogs: () => set({ debugLogs: [] }),
+
+  // Polling
+  lastPollTime: 0,
+  setLastPollTime: (time) => set({ lastPollTime: time }),
+  workspaceHealth: {},
+  setWorkspaceHealth: (workspace, status) =>
+    set((state) => ({
+      workspaceHealth: { ...state.workspaceHealth, [workspace]: status },
+    })),
 }), {
   name: "gsd-control-v2",
   version: 2,
@@ -230,5 +245,6 @@ export function createEmptySession(
     lastUpdated: Date.now(),
     logs: [],
     tmuxSessions: [],
+    terminalPreview: [],
   };
 }

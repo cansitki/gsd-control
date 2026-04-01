@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../stores/appStore";
+import type { DateRange } from "../lib/types";
+
+export type { DateRange } from "../lib/types";
 
 export interface CostDataPoint {
   date: string; // YYYY-MM-DD
@@ -43,10 +46,37 @@ function formatDate(epochMs: number): string {
   return `${year}-${month}-${day}`;
 }
 
-function getLast14Days(): string[] {
+function getDateRange(range: DateRange): string[] {
   const days: string[] = [];
   const now = new Date();
-  for (let i = 13; i >= 0; i--) {
+  let count: number;
+
+  switch (range.preset) {
+    case 'today':
+      count = 1;
+      break;
+    case 'week':
+      count = 7;
+      break;
+    case 'month':
+      count = 30;
+      break;
+    case 'custom': {
+      if (!range.start || !range.end) return [formatDate(now.getTime())];
+      const startDate = new Date(range.start + 'T00:00:00');
+      const endDate = new Date(range.end + 'T00:00:00');
+      const cursor = new Date(startDate);
+      while (cursor <= endDate) {
+        days.push(formatDate(cursor.getTime()));
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return days.length > 0 ? days : [formatDate(now.getTime())];
+    }
+    default:
+      count = 14;
+  }
+
+  for (let i = count - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
     days.push(formatDate(d.getTime()));
@@ -54,7 +84,7 @@ function getLast14Days(): string[] {
   return days;
 }
 
-export function useCostHistory(): UseCostHistoryResult {
+export function useCostHistory(range: DateRange): UseCostHistoryResult {
   const workspaces = useAppStore((s) => s.workspaces);
   const [data, setData] = useState<CostDataPoint[]>([]);
   const [totalCost, setTotalCost] = useState(0);
@@ -63,8 +93,8 @@ export function useCostHistory(): UseCostHistoryResult {
   const fetchMetrics = useCallback(async () => {
     setLoading(true);
     const allPoints: CostDataPoint[] = [];
-    const last14 = getLast14Days();
-    const cutoffDate = last14[0];
+    const dateRange = getDateRange(range);
+    const cutoffDate = dateRange[0];
 
     for (const ws of workspaces) {
       for (const proj of ws.projects) {
@@ -92,7 +122,7 @@ export function useCostHistory(): UseCostHistoryResult {
             dailyBuckets[date] = (dailyBuckets[date] ?? 0) + unit.cost;
           }
 
-          for (const date of last14) {
+          for (const date of dateRange) {
             const cost = dailyBuckets[date] ?? 0;
             if (cost > 0) {
               allPoints.push({
@@ -111,7 +141,7 @@ export function useCostHistory(): UseCostHistoryResult {
     // Ensure every date/project combo exists for consistent stacking
     const projects = [...new Set(allPoints.map((p) => p.project))];
     const filledPoints: CostDataPoint[] = [];
-    for (const date of last14) {
+    for (const date of dateRange) {
       for (const project of projects) {
         const existing = allPoints.find(
           (p) => p.date === date && p.project === project
@@ -124,7 +154,7 @@ export function useCostHistory(): UseCostHistoryResult {
     setData(filledPoints);
     setTotalCost(total);
     setLoading(false);
-  }, [workspaces]);
+  }, [workspaces, range]);
 
   useEffect(() => {
     fetchMetrics();

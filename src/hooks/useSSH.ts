@@ -92,9 +92,25 @@ for event_log in glob.glob(home + "/**/.gsd/event-log.jsonl", recursive=True):
         project_sessions = [s for s in project_sessions if s["name"] != "gsd-watcher"]
         data["tmuxSessions"] = [s["name"] for s in project_sessions]
         data["sessionDetails"] = project_sessions
+
+        # Capture last 5 lines from the most active (lowest idle) session
+        if project_sessions:
+            most_active = min(project_sessions, key=lambda s: s["idle"])
+            try:
+                cap = subprocess.run(
+                    ["tmux", "capture-pane", "-p", "-t", most_active["name"]],
+                    capture_output=True, text=True, timeout=3
+                )
+                lines = [l for l in cap.stdout.split("\\n") if l.strip()]
+                data["terminalPreview"] = lines[-5:] if lines else []
+            except:
+                data["terminalPreview"] = []
+        else:
+            data["terminalPreview"] = []
     except:
         data["tmuxSessions"] = []
         data["sessionDetails"] = []
+        data["terminalPreview"] = []
 
     # Git branch
     try:
@@ -132,6 +148,7 @@ interface RemoteProjectData {
   lastMilestoneCacheHit?: number;
   tmuxSessions: string[];
   sessionDetails?: { name: string; idle: number }[];
+  terminalPreview?: string[];
   gitBranch: string;
   lastEvent?: { cmd: string; params: Record<string, string>; ts: string } | null;
 }
@@ -176,6 +193,8 @@ export function useSSH() {
   const setConnectionStatus = useAppStore((s) => s.setConnectionStatus);
   const workspaces = useAppStore((s) => s.workspaces);
   const setSession = useAppStore((s) => s.setSession);
+  const setLastPollTime = useAppStore((s) => s.setLastPollTime);
+  const setWorkspaceHealth = useAppStore((s) => s.setWorkspaceHealth);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const connect = useCallback(async () => {
@@ -306,6 +325,7 @@ export function useSSH() {
               lastUpdated: Date.now(),
               logs: [],
               tmuxSessions,
+              terminalPreview: remote.terminalPreview || [],
             });
           } else {
             // No GSD data found — create empty session
@@ -314,8 +334,11 @@ export function useSSH() {
             );
           }
         }
+
+        setWorkspaceHealth(ws.coderName, 'ok');
       } catch (e) {
         console.error(`Failed to fetch GSD data from ${ws.coderName}:`, e);
+        setWorkspaceHealth(ws.coderName, 'error');
         // Create empty sessions so they still show
         for (const proj of ws.projects) {
           setSession(
@@ -324,7 +347,9 @@ export function useSSH() {
         }
       }
     }
-  }, [workspaces, setSession]);
+
+    setLastPollTime(Date.now());
+  }, [workspaces, setSession, setWorkspaceHealth, setLastPollTime]);
 
   // Auto-connect + fetch on mount, then poll every 30 seconds
   useEffect(() => {

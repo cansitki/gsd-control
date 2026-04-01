@@ -4,12 +4,16 @@ import { useSSH } from "../hooks/useSSH";
 import SessionCard from "./SessionCard";
 import CostChart from "./CostChart";
 import { useCostHistory } from "../hooks/useCostHistory";
+import type { DateRange } from "../lib/types";
+
+const DEFAULT_DATE_RANGE: DateRange = { preset: 'month' };
 
 function Dashboard() {
   const sessions = useAppStore((s) => s.sessions);
   const events = useAppStore((s) => s.events);
   const connection = useAppStore((s) => s.connection);
-  const costHistory = useCostHistory();
+  const [dateRange] = useState<DateRange>(DEFAULT_DATE_RANGE);
+  const costHistory = useCostHistory(dateRange);
   const { fetchGSDData } = useSSH();
   const [refreshing, setRefreshing] = useState(false);
 

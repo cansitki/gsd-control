@@ -49,6 +49,7 @@ export interface GSDSession {
   lastUpdated: number;
   logs: string[];
   tmuxSessions?: TmuxSessionInfo[];
+  terminalPreview?: string[];
 }
 
 export interface SSHConnection {
@@ -94,6 +95,12 @@ export interface AppConfig {
   };
   costAlertThreshold: number | null;
   githubToken: string;
+}
+
+export interface DateRange {
+  preset: 'today' | 'week' | 'month' | 'custom';
+  start?: string; // YYYY-MM-DD
+  end?: string;   // YYYY-MM-DD
 }
 
 export type ViewMode = "dashboard" | "terminal" | "logs" | "settings";
