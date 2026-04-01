@@ -30,10 +30,8 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
+      # Rust cache: not needed on self-hosted runner (local disk cache persists).
+      # swatinem/rust-cache@v2 hangs on post-job cleanup on self-hosted runners.
 
       - name: Install dependencies
         run: |
