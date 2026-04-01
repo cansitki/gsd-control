@@ -5,7 +5,7 @@ import { useAppStore } from "../stores/appStore";
 import { WATCHER_SCRIPT } from "../lib/watcherScript";
 import { escapeShellSingleQuote } from "../lib/shell";
 
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.0.1";
 
 function Settings() {
   const config = useAppStore((s) => s.config);
