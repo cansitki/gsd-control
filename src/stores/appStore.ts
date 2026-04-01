@@ -20,6 +20,10 @@ interface AppState {
     error?: string
   ) => void;
 
+  // Hydration
+  _hasHydrated: boolean;
+  _setHasHydrated: (v: boolean) => void;
+
   // Workspaces
   workspaces: WorkspaceConfig[];
   addProject: (coderName: string, project: ProjectConfig) => void;
@@ -98,6 +102,10 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     set((state) => ({
       connection: { ...state.connection, status, error: error ?? null },
     })),
+
+  // Hydration tracking — false until zustand finishes rehydrating from localStorage
+  _hasHydrated: false,
+  _setHasHydrated: (v) => set({ _hasHydrated: v }),
 
   workspaces: WORKSPACES,
   addProject: (coderName, project) =>
@@ -205,6 +213,9 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   name: "gsd-control-v2",
   version: 2,
   storage: createJSONStorage(() => localStorage),
+  onRehydrateStorage: () => (state) => {
+    state?._setHasHydrated(true);
+  },
   partialize: (state) => ({
     config: {
       sshProfiles: state.config.sshProfiles,

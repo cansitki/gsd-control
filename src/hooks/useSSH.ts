@@ -195,6 +195,7 @@ export function useSSH() {
   const setSession = useAppStore((s) => s.setSession);
   const setLastPollTime = useAppStore((s) => s.setLastPollTime);
   const setWorkspaceHealth = useAppStore((s) => s.setWorkspaceHealth);
+  const hasHydrated = useAppStore((s) => s._hasHydrated);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const connect = useCallback(async () => {
@@ -352,7 +353,10 @@ export function useSSH() {
   }, [workspaces, setSession, setWorkspaceHealth, setLastPollTime]);
 
   // Auto-connect + fetch on mount, then poll every 30 seconds
+  // Wait for zustand hydration so config.sshProfiles is populated from localStorage
   useEffect(() => {
+    if (!hasHydrated) return;
+
     const init = async () => {
       const connected = await connect();
       if (connected) {
@@ -372,7 +376,7 @@ export function useSSH() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hasHydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { connect, fetchGSDData };
 }
