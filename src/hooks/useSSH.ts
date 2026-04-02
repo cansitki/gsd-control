@@ -421,9 +421,13 @@ export function useSSH() {
     if (!allUnhealthy) return;
 
     // All workspaces failed — verify with a direct health check before reconnecting
-    console.warn("SSH health: all workspaces unhealthy, running health check...");
+    // Use the first workspace for the health check probe
+    const probeWorkspace = ws[0].coderName;
+    console.warn(`SSH health: all workspaces unhealthy, running health check on ${probeWorkspace}...`);
     try {
-      const result = await invoke<{ status: string; message: string }>("ssh_health_check");
+      const result = await invoke<{ status: string; message: string }>("ssh_health_check", {
+        workspace: probeWorkspace,
+      });
       if (result.status !== "ok") {
         console.warn(`SSH health: check returned ${result.status} — ${result.message}, triggering reconnect`);
         connect({ isRetry: true });

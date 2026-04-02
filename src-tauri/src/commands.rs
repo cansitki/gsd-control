@@ -73,8 +73,12 @@ pub async fn test_workspace(
     ssh: State<'_, SharedSshManager>,
     workspace: String,
 ) -> Result<ConnectionStatus, String> {
-    let manager = ssh.lock().await;
-    match manager.test_workspace(&workspace).await {
+    // Read config and release lock before the SSH operation
+    let coder_user = {
+        let manager = ssh.lock().await;
+        manager.config.coder_user.clone()
+    };
+    match crate::ssh::test_workspace_direct(&workspace, &coder_user).await {
         Ok(()) => Ok(ConnectionStatus {
             connected: true,
             error: None,
@@ -91,8 +95,12 @@ pub async fn ssh_health_check(
     ssh: State<'_, SharedSshManager>,
     workspace: String,
 ) -> Result<crate::ssh::HealthCheckResult, String> {
-    let manager = ssh.lock().await;
-    Ok(manager.health_check(&workspace).await)
+    // Read config and release lock before the SSH operation
+    let coder_user = {
+        let manager = ssh.lock().await;
+        manager.config.coder_user.clone()
+    };
+    Ok(crate::ssh::health_check_direct(&workspace, &coder_user).await)
 }
 
 #[tauri::command]
@@ -101,8 +109,12 @@ pub async fn ssh_exec(
     workspace: String,
     command: String,
 ) -> Result<String, String> {
-    let manager = ssh.lock().await;
-    manager.exec_in_workspace(&workspace, &command).await
+    // Read config and release lock before the SSH operation
+    let coder_user = {
+        let manager = ssh.lock().await;
+        manager.config.coder_user.clone()
+    };
+    crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, &command).await
 }
 
 #[tauri::command]
@@ -110,8 +122,12 @@ pub async fn list_workspaces(
     ssh: State<'_, SharedSshManager>,
     workspace: String,
 ) -> Result<Vec<WorkspaceInfo>, String> {
-    let manager = ssh.lock().await;
-    let output = manager.exec_in_workspace(&workspace, "coder list").await?;
+    // Read config and release lock before the SSH operation
+    let coder_user = {
+        let manager = ssh.lock().await;
+        manager.config.coder_user.clone()
+    };
+    let output = crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, "coder list").await?;
 
     // Try JSON parse first, fall back to text parsing
     if let Ok(workspaces) = serde_json::from_str::<Vec<serde_json::Value>>(&output) {
@@ -149,13 +165,18 @@ pub async fn discover_projects(
     ssh: State<'_, SharedSshManager>,
     workspace: String,
 ) -> Result<Vec<ProjectInfo>, String> {
-    let manager = ssh.lock().await;
-    let output = manager
-        .exec_in_workspace(
-            &workspace,
-            "find ~ -maxdepth 3 -name .gsd -type d 2>/dev/null",
-        )
-        .await?;
+    // Read config and release lock before the SSH operations
+    let coder_user = {
+        let manager = ssh.lock().await;
+        manager.config.coder_user.clone()
+    };
+
+    let output = crate::ssh::exec_in_workspace_direct(
+        &workspace,
+        &coder_user,
+        "find ~ -maxdepth 3 -name .gsd -type d 2>/dev/null",
+    )
+    .await?;
 
     let mut projects = Vec::new();
     for line in output.lines() {
@@ -172,24 +193,24 @@ pub async fn discover_projects(
             continue;
         }
 
-        // Read state files
-        let state_md = manager
-            .exec_in_workspace(
-                &workspace,
-                &format!("cat {}/.gsd/STATE.md 2>/dev/null", project_path),
-            )
-            .await
-            .ok()
-            .filter(|s| !s.is_empty());
+        // Read state files — lock-free
+        let state_md = crate::ssh::exec_in_workspace_direct(
+            &workspace,
+            &coder_user,
+            &format!("cat {}/.gsd/STATE.md 2>/dev/null", project_path),
+        )
+        .await
+        .ok()
+        .filter(|s| !s.is_empty());
 
-        let project_md = manager
-            .exec_in_workspace(
-                &workspace,
-                &format!("cat {}/.gsd/PROJECT.md 2>/dev/null | head -30", project_path),
-            )
-            .await
-            .ok()
-            .filter(|s| !s.is_empty());
+        let project_md = crate::ssh::exec_in_workspace_direct(
+            &workspace,
+            &coder_user,
+            &format!("cat {}/.gsd/PROJECT.md 2>/dev/null | head -30", project_path),
+        )
+        .await
+        .ok()
+        .filter(|s| !s.is_empty());
 
         projects.push(ProjectInfo {
             workspace: workspace.clone(),
@@ -203,18 +224,24 @@ pub async fn discover_projects(
     Ok(projects)
 }
 
+/// Execute a command on a workspace — lock-free pattern.
+/// Reads coder_user from config, releases lock, then runs SSH command concurrently.
 #[tauri::command]
 pub async fn exec_in_workspace(
     ssh: State<'_, SharedSshManager>,
     workspace: String,
     command: String,
 ) -> Result<String, String> {
-    let manager = ssh.lock().await;
-    // If coder_user is empty, try to set it from config
-    if manager.config.coder_user.is_empty() {
-        return Err("Not connected — go to Settings or restart the app".to_string());
-    }
-    manager.exec_in_workspace(&workspace, &command).await
+    // Brief lock: read config only
+    let coder_user = {
+        let manager = ssh.lock().await;
+        if manager.config.coder_user.is_empty() {
+            return Err("Not connected — go to Settings or restart the app".to_string());
+        }
+        manager.config.coder_user.clone()
+    };
+    // Lock released — SSH command runs without blocking other operations
+    crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, &command).await
 }
 
 // ── Terminal commands ──────────────────────────────────────────────────────
@@ -305,13 +332,17 @@ pub async fn list_tmux_sessions(
     ssh: State<'_, SharedSshManager>,
     workspace: String,
 ) -> Result<Vec<String>, String> {
-    let manager = ssh.lock().await;
-    let output = manager
-        .exec_in_workspace(
-            &workspace,
-            "tmux list-sessions -F '#{session_name}' 2>/dev/null || true",
-        )
-        .await?;
+    // Read config and release lock before SSH operation
+    let coder_user = {
+        let manager = ssh.lock().await;
+        manager.config.coder_user.clone()
+    };
+    let output = crate::ssh::exec_in_workspace_direct(
+        &workspace,
+        &coder_user,
+        "tmux list-sessions -F '#{session_name}' 2>/dev/null || true",
+    )
+    .await?;
     Ok(output
         .lines()
         .map(|l| l.trim().to_string())
@@ -327,11 +358,14 @@ pub async fn create_project(
     workspace: String,
     project_path: String,
 ) -> Result<String, String> {
-    let manager = ssh.lock().await;
+    let coder_user = {
+        let manager = ssh.lock().await;
+        manager.config.coder_user.clone()
+    };
 
     // Create the project directory
     let cmd = format!("mkdir -p ~/{} && echo ok", project_path);
-    let output = manager.exec_in_workspace(&workspace, &cmd).await?;
+    let output = crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, &cmd).await?;
 
     if output.trim() != "ok" {
         return Err(format!("Failed to create directory: {}", output));
@@ -348,11 +382,14 @@ pub async fn upload_file(
     file_name: String,
     file_data_base64: String,
 ) -> Result<String, String> {
-    let manager = ssh.lock().await;
+    let coder_user = {
+        let manager = ssh.lock().await;
+        manager.config.coder_user.clone()
+    };
 
     // Ensure target directory exists
     let mkdir_cmd = format!("mkdir -p ~/{}", project_path);
-    manager.exec_in_workspace(&workspace, &mkdir_cmd).await?;
+    crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, &mkdir_cmd).await?;
 
     // Decode and write via base64 pipe to avoid shell escaping issues
     // Split into chunks to avoid argument-too-long errors
@@ -365,12 +402,12 @@ pub async fn upload_file(
             "echo '{}' | base64 -d > {}",
             file_data_base64, dest
         );
-        manager.exec_in_workspace(&workspace, &cmd).await?;
+        crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, &cmd).await?;
     } else {
         // First chunk: overwrite
         let first = &file_data_base64[..chunk_size];
         let cmd = format!("printf '%s' '{}' > /tmp/_upload_b64", first);
-        manager.exec_in_workspace(&workspace, &cmd).await?;
+        crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, &cmd).await?;
 
         // Remaining chunks: append
         let mut offset = chunk_size;
@@ -378,13 +415,13 @@ pub async fn upload_file(
             let end = std::cmp::min(offset + chunk_size, total);
             let chunk = &file_data_base64[offset..end];
             let cmd = format!("printf '%s' '{}' >> /tmp/_upload_b64", chunk);
-            manager.exec_in_workspace(&workspace, &cmd).await?;
+            crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, &cmd).await?;
             offset = end;
         }
 
         // Decode the reassembled base64
         let cmd = format!("base64 -d /tmp/_upload_b64 > {} && rm -f /tmp/_upload_b64", dest);
-        manager.exec_in_workspace(&workspace, &cmd).await?;
+        crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, &cmd).await?;
     }
 
     Ok(format!("Uploaded {} to {}", file_name, dest))
@@ -396,12 +433,15 @@ pub async fn list_project_files(
     workspace: String,
     project_path: String,
 ) -> Result<Vec<FileEntry>, String> {
-    let manager = ssh.lock().await;
+    let coder_user = {
+        let manager = ssh.lock().await;
+        manager.config.coder_user.clone()
+    };
     let cmd = format!(
         "find ~/{} -maxdepth 1 -not -path ~/{} -printf '%f\\t%s\\t%y\\n' 2>/dev/null | sort",
         project_path, project_path
     );
-    let output = manager.exec_in_workspace(&workspace, &cmd).await?;
+    let output = crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, &cmd).await?;
 
     let mut entries = Vec::new();
     for line in output.lines() {
@@ -431,7 +471,10 @@ pub async fn gsd_start_auto(
     project_path: String,
     milestone: Option<String>,
 ) -> Result<String, String> {
-    let manager = ssh.lock().await;
+    let coder_user = {
+        let manager = ssh.lock().await;
+        manager.config.coder_user.clone()
+    };
 
     // Create a tmux session named after the project
     let session_name = project_path.replace('/', "-");
@@ -441,8 +484,9 @@ pub async fn gsd_start_auto(
     };
 
     // Kill existing session if any, then start fresh
-    let _ = manager.exec_in_workspace(
+    let _ = crate::ssh::exec_in_workspace_direct(
         &workspace,
+        &coder_user,
         &format!("tmux kill-session -t {} 2>/dev/null; true", session_name),
     ).await;
 
@@ -450,7 +494,7 @@ pub async fn gsd_start_auto(
         "tmux new-session -d -s {} '{}'",
         session_name, gsd_cmd,
     );
-    manager.exec_in_workspace(&workspace, &cmd).await?;
+    crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, &cmd).await?;
 
     Ok(format!("Started GSD auto in tmux session '{}'", session_name))
 }
@@ -461,10 +505,14 @@ pub async fn gsd_stop(
     workspace: String,
     project_path: String,
 ) -> Result<String, String> {
-    let manager = ssh.lock().await;
+    let coder_user = {
+        let manager = ssh.lock().await;
+        manager.config.coder_user.clone()
+    };
     let session_name = project_path.replace('/', "-");
-    manager.exec_in_workspace(
+    crate::ssh::exec_in_workspace_direct(
         &workspace,
+        &coder_user,
         &format!("tmux send-keys -t {} C-c 2>/dev/null; sleep 2; tmux kill-session -t {} 2>/dev/null; true", session_name, session_name),
     ).await?;
     Ok(format!("Stopped GSD session '{}'", session_name))
@@ -522,6 +570,7 @@ struct GithubRelease {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct GithubAsset {
     name: String,
     url: String,

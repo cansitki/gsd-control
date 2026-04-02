@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 
 pub struct TerminalSession {
     pub stdin_tx: mpsc::Sender<Vec<u8>>,
+    /// PID of the SSH child process — used to kill it instantly on close
+    pub child_pid: Option<u32>,
 }
 
 pub type TerminalStore = Arc<Mutex<HashMap<String, TerminalSession>>>;
@@ -49,6 +51,8 @@ pub async fn open_terminal(
         .spawn()
         .map_err(|e| format!("Failed to spawn SSH: {}", e))?;
 
+    let child_pid = child.id();
+
     let mut stdout = child.stdout.take().ok_or("No stdout")?;
     let mut stderr = child.stderr.take().ok_or("No stderr")?;
     let mut stdin = child.stdin.take().ok_or("No stdin")?;
@@ -56,10 +60,10 @@ pub async fn open_terminal(
     // Channel for sending input to the process
     let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(256);
 
-    // Store the session
+    // Store the session with PID for instant kill on close
     {
         let mut store = store.lock().await;
-        store.insert(id.clone(), TerminalSession { stdin_tx });
+        store.insert(id.clone(), TerminalSession { stdin_tx, child_pid });
     }
 
     let id_clone = id.clone();
@@ -155,6 +159,8 @@ pub async fn open_terminal_tmux(
         .spawn()
         .map_err(|e| format!("Failed to spawn SSH: {}", e))?;
 
+    let child_pid = child.id();
+
     let mut stdout = child.stdout.take().ok_or("No stdout")?;
     let mut stderr = child.stderr.take().ok_or("No stderr")?;
     let mut stdin = child.stdin.take().ok_or("No stdin")?;
@@ -163,7 +169,7 @@ pub async fn open_terminal_tmux(
 
     {
         let mut store = store.lock().await;
-        store.insert(id.clone(), TerminalSession { stdin_tx });
+        store.insert(id.clone(), TerminalSession { stdin_tx, child_pid });
     }
 
     let id_clone = id.clone();
@@ -235,9 +241,27 @@ pub async fn write_terminal(
     }
 }
 
+/// Close a terminal session by killing the SSH child process immediately.
+/// Previously only removed from HashMap which left the SSH process lingering
+/// for 3-7 seconds until it noticed stdin EOF.
 pub async fn close_terminal(id: &str, store: TerminalStore) {
     let mut store = store.lock().await;
-    store.remove(id);
+    if let Some(session) = store.remove(id) {
+        // Kill the SSH child process immediately — this is the key fix.
+        // Without this, the SSH process lingers for seconds after tab close
+        // because it's attached to tmux via -tt and doesn't notice stdin EOF quickly.
+        if let Some(pid) = session.child_pid {
+            #[cfg(unix)]
+            {
+                // Send SIGKILL to the SSH process for instant termination.
+                // SIGTERM can be delayed if SSH is in the middle of I/O.
+                unsafe {
+                    libc::kill(pid as i32, libc::SIGKILL);
+                }
+            }
+        }
+        // stdin_tx is dropped here, which also signals the stdin writer task to exit
+    }
 }
 
 pub async fn resize_terminal(

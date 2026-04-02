@@ -84,12 +84,14 @@ impl SshManager {
         Self { config, connected: false }
     }
 
+    #[allow(dead_code)]
     pub fn update_config(&mut self, host: &str, user: &str, key_path: &str) {
         self.config.host = host.to_string();
         self.config.user = user.to_string();
         self.config.key_path = key_path.to_string();
     }
 
+    #[allow(dead_code)]
     pub fn set_coder_user(&mut self, coder_user: &str) {
         self.config.coder_user = coder_user.to_string();
     }
@@ -152,6 +154,7 @@ impl SshManager {
     /// Lightweight health check for a specific Coder workspace.
     /// Uses a shorter ConnectTimeout=10 (vs 15 for test_workspace) and returns
     /// a structured result the frontend can use for reconnect decisions.
+    #[allow(dead_code)]
     pub async fn health_check(&self, workspace: &str) -> HealthCheckResult {
         let host = workspace_ssh_host(workspace, &self.config.coder_user);
         let result = ssh_command()
@@ -186,6 +189,7 @@ impl SshManager {
     }
 
     /// Test connection to a specific Coder workspace
+    #[allow(dead_code)]
     pub async fn test_workspace(&self, workspace: &str) -> Result<(), String> {
         let host = workspace_ssh_host(workspace, &self.config.coder_user);
         let output = ssh_command()
@@ -210,6 +214,7 @@ impl SshManager {
     }
 
     /// Run a command inside a workspace via its direct SSH alias
+    #[allow(dead_code)]
     pub async fn exec_in_workspace(
         &self,
         workspace: &str,
@@ -255,4 +260,107 @@ pub type SharedSshManager = Arc<Mutex<SshManager>>;
 
 pub fn create_ssh_manager(config: SshConfig) -> SharedSshManager {
     Arc::new(Mutex::new(SshManager::new(config)))
+}
+
+// ── Lock-free standalone functions ─────────────────────────────────────────
+// These run SSH commands WITHOUT holding the SshManager mutex, allowing
+// concurrent operations. The caller reads config from the mutex first,
+// then calls these with the extracted values.
+
+/// Run a command inside a workspace — lock-free version.
+/// Caller must provide coder_user extracted from SshManager config.
+pub async fn exec_in_workspace_direct(
+    workspace: &str,
+    coder_user: &str,
+    command: &str,
+) -> Result<String, String> {
+    let host = workspace_ssh_host(workspace, coder_user);
+    let output = ssh_command()
+        .args([
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=15",
+            "-o", "BatchMode=yes",
+            &host,
+            command,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("SSH exec failed: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if output.status.success() || !stdout.is_empty() {
+        if stdout.is_empty() && !stderr.is_empty() {
+            Ok(stderr)
+        } else {
+            Ok(stdout)
+        }
+    } else {
+        Err(format!("SSH error: {}", stderr.trim()))
+    }
+}
+
+/// Health check a workspace — lock-free version.
+pub async fn health_check_direct(
+    workspace: &str,
+    coder_user: &str,
+) -> HealthCheckResult {
+    let host = workspace_ssh_host(workspace, coder_user);
+    let result = ssh_command()
+        .args([
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=10",
+            "-o", "BatchMode=yes",
+            &host,
+            "echo ok",
+        ])
+        .output()
+        .await;
+
+    match result {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            if stdout.trim() == "ok" {
+                HealthCheckResult { status: "ok".to_string(), message: None }
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                HealthCheckResult {
+                    status: "unreachable".to_string(),
+                    message: Some(stderr.trim().to_string()),
+                }
+            }
+        }
+        Err(e) => HealthCheckResult {
+            status: "error".to_string(),
+            message: Some(format!("SSH process failed: {}", e)),
+        },
+    }
+}
+
+/// Test workspace connectivity — lock-free version.
+pub async fn test_workspace_direct(
+    workspace: &str,
+    coder_user: &str,
+) -> Result<(), String> {
+    let host = workspace_ssh_host(workspace, coder_user);
+    let output = ssh_command()
+        .args([
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=15",
+            "-o", "BatchMode=yes",
+            &host,
+            "echo ok",
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("SSH test failed: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    if stdout.trim() == "ok" {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        Err(format!("Workspace unreachable: {}", stderr.trim()))
+    }
 }
