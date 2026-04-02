@@ -1,6 +1,5 @@
 import { Terminal, IDisposable } from "@xterm/xterm";
 import { FitAddon, ITerminalDimensions } from "@xterm/addon-fit";
-import { WebglAddon } from "@xterm/addon-webgl";
 import { SearchAddon, ISearchOptions } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -99,6 +98,11 @@ export class TermWrap {
     this.terminal.open(elem);
 
     // --- WebGL with fallback ---
+    // NOTE: WebGL disabled — Tauri's WKWebView on macOS can have WebGL
+    // context issues that cause the terminal to render blank (canvas overlays
+    // DOM renderer but paints nothing). The DOM/canvas renderer is fast enough.
+    // To re-enable, uncomment the block below.
+    /*
     try {
       const webglAddon = new WebglAddon();
       webglAddon.onContextLoss(() => {
@@ -111,6 +115,7 @@ export class TermWrap {
     } catch (err) {
       console.warn("[TermWrap] WebGL renderer unavailable, using DOM renderer:", err);
     }
+    */
 
     // --- Resize via FitAddon only ---
     this.resizeObserver = new ResizeObserver(() => this.fit());

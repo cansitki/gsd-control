@@ -125,23 +125,29 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
     // Track intentional close to suppress stale close events from our own terminal_close call
     let intentionalClose = false;
 
-    const tw = new TermWrap(containerRef.current, {
-      fontSize: 13,
-      onResize: (cols, rows) => {
-        if (connectedRef.current) {
-          invoke("terminal_resize", { id: tabId, cols, rows }).catch(() => {});
-        }
-      },
-      onClose: () => {
-        // Ignore close events triggered by our own pre-connect terminal_close call
-        if (intentionalClose) return;
-        if (mountedRef.current) {
-          tw.write("\r\n\x1b[38;5;242m[Connection closed — press any key to reconnect]\x1b[0m");
-          connectedRef.current = false;
-          connectingRef.current = false;
-        }
-      },
-    });
+    let tw: TermWrap;
+    try {
+      tw = new TermWrap(containerRef.current, {
+        fontSize: 13,
+        onResize: (cols, rows) => {
+          if (connectedRef.current) {
+            invoke("terminal_resize", { id: tabId, cols, rows }).catch(() => {});
+          }
+        },
+        onClose: () => {
+          // Ignore close events triggered by our own pre-connect terminal_close call
+          if (intentionalClose) return;
+          if (mountedRef.current) {
+            tw.write("\r\n\x1b[38;5;242m[Connection closed — press any key to reconnect]\x1b[0m");
+            connectedRef.current = false;
+            connectingRef.current = false;
+          }
+        },
+      });
+    } catch (err) {
+      console.error("[TerminalBlock] Failed to create terminal:", err);
+      return;
+    }
 
     termWrapRef.current = tw;
 
