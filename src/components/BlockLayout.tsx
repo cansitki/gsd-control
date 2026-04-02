@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { debugInvoke as invoke } from "../lib/debugInvoke";
 import { useAppStore } from "../stores/appStore";
 import { sanitizeShellArg } from "../lib/shell";
@@ -211,8 +211,29 @@ function BlockLayout() {
   const setBlockLayout = useAppStore((s) => s.setBlockLayout);
   const workspaces = useAppStore((s) => s.workspaces);
   const [showSessions, setShowSessions] = useState(false);
+  const [showNewBlockMenu, setShowNewBlockMenu] = useState(false);
+  const newBlockMenuRef = useRef<HTMLDivElement>(null);
 
-  const handleNewBlock = () => {
+  // Close menu on outside click or Escape
+  useEffect(() => {
+    if (!showNewBlockMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (newBlockMenuRef.current && !newBlockMenuRef.current.contains(e.target as Node)) {
+        setShowNewBlockMenu(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowNewBlockMenu(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [showNewBlockMenu]);
+
+  const handleNewTerminal = () => {
     if (workspaces.length === 0 || workspaces[0].projects.length === 0) return;
     const ws = workspaces[0];
     const proj = ws.projects[0];
@@ -225,6 +246,21 @@ function BlockLayout() {
       title: `${ws.displayName} · ${proj.displayName}`,
       isActive: true,
     });
+    setShowNewBlockMenu(false);
+  };
+
+  const handleNewBrowser = () => {
+    const id = `browser-${Date.now()}`;
+    addBlock({
+      id,
+      type: "browser",
+      workspace: "",
+      project: "",
+      title: "Browser",
+      url: "https://google.com",
+      isActive: true,
+    });
+    setShowNewBlockMenu(false);
   };
 
   const isGrid = blockLayout !== "tabs";
@@ -268,13 +304,31 @@ function BlockLayout() {
               </button>
             </div>
           ))}
-          <button
-            onClick={handleNewBlock}
-            className="px-3 py-2 text-base-muted hover:text-accent-green text-sm flex-shrink-0"
-            title="New terminal block"
-          >
-            +
-          </button>
+          <div className="relative" ref={newBlockMenuRef}>
+            <button
+              onClick={() => setShowNewBlockMenu((v) => !v)}
+              className="px-3 py-2 text-base-muted hover:text-accent-green text-sm flex-shrink-0"
+              title="New block"
+            >
+              +
+            </button>
+            {showNewBlockMenu && (
+              <div className="absolute top-full left-0 mt-1 bg-base-surface border border-base-border rounded-lg shadow-xl py-1 min-w-[140px] z-50">
+                <button
+                  onClick={handleNewTerminal}
+                  className="w-full text-left px-3 py-1.5 text-xs text-base-text hover:bg-base-bg transition-colors flex items-center gap-2"
+                >
+                  <span className="opacity-60">{BLOCK_ICON.terminal}</span> Terminal
+                </button>
+                <button
+                  onClick={handleNewBrowser}
+                  className="w-full text-left px-3 py-1.5 text-xs text-base-text hover:bg-base-bg transition-colors flex items-center gap-2"
+                >
+                  <span className="opacity-60">{BLOCK_ICON.browser}</span> Browser
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Layout + sessions */}
@@ -309,12 +363,20 @@ function BlockLayout() {
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <p className="text-base-muted text-sm mb-2">No blocks open</p>
-              <button
-                onClick={handleNewBlock}
-                className="text-xs text-accent-orange hover:text-accent-orange/80 border border-accent-orange/30 rounded px-3 py-1.5"
-              >
-                Open Terminal
-              </button>
+              <div className="flex gap-2 justify-center">
+                <button
+                  onClick={handleNewTerminal}
+                  className="text-xs text-accent-orange hover:text-accent-orange/80 border border-accent-orange/30 rounded px-3 py-1.5"
+                >
+                  Open Terminal
+                </button>
+                <button
+                  onClick={handleNewBrowser}
+                  className="text-xs text-accent-blue hover:text-accent-blue/80 border border-accent-blue/30 rounded px-3 py-1.5"
+                >
+                  Open Browser
+                </button>
+              </div>
             </div>
           </div>
         ) : isGrid ? (
@@ -353,7 +415,7 @@ function BlockLayout() {
                 className="flex items-center justify-center bg-[#141a14]"
               >
                 <button
-                  onClick={handleNewBlock}
+                  onClick={handleNewTerminal}
                   className="text-xs text-base-muted/30 hover:text-base-muted border border-dashed border-base-border/20 rounded px-3 py-1.5 transition-colors"
                 >
                   + Open
