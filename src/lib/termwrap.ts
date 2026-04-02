@@ -217,15 +217,26 @@ export class TermWrap {
         return;
       }
       const rect = this.elem.getBoundingClientRect();
+      // Read xterm's internal cell size and parent computed height for diagnostics
+      let cellInfo = "";
+      let computedH = 0;
+      try {
+        const core = (this.terminal as any)._core;
+        const cssDims = core._renderService.dimensions.css.cell;
+        cellInfo = `cell=${cssDims.width.toFixed(1)}x${cssDims.height.toFixed(1)}`;
+        // This is exactly what FitAddon reads:
+        const parentStyle = window.getComputedStyle(this.terminal.element!.parentElement!);
+        computedH = parseInt(parentStyle.getPropertyValue("height"));
+      } catch { /* older xterm or private API change */ }
       const dims: ITerminalDimensions | undefined =
         this.fitAddon.proposeDimensions();
       if (!dims) {
-        this._debug(`fit: proposeDimensions=undefined container=${Math.round(rect.width)}x${Math.round(rect.height)}`);
+        this._debug(`fit: proposeDimensions=undefined container=${Math.round(rect.width)}x${Math.round(rect.height)} ${cellInfo}`);
         return;
       }
       const changed = dims.cols !== this.lastCols || dims.rows !== this.lastRows;
       const actual = `actual=${this.terminal.cols}x${this.terminal.rows}`;
-      this._debug(`fit: ${dims.cols}x${dims.rows} was=${this.lastCols}x${this.lastRows} ${actual} container=${Math.round(rect.width)}x${Math.round(rect.height)} force=${force} changed=${changed}`);
+      this._debug(`fit: ${dims.cols}x${dims.rows} was=${this.lastCols}x${this.lastRows} ${actual} rect=${Math.round(rect.width)}x${Math.round(rect.height)} computedH=${computedH} ${cellInfo} force=${force} changed=${changed}`);
       if (force || changed) {
         this.lastCols = dims.cols;
         this.lastRows = dims.rows;
