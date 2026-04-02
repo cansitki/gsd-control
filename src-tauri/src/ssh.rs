@@ -32,10 +32,15 @@ pub fn shell_path() -> String {
     paths.join(":")
 }
 
-/// Create an SSH Command with the full user PATH set
-fn ssh_command() -> Command {
+/// Create an SSH Command with the full user PATH and multiplexing flags set.
+/// All SSH invocations should go through this helper so every connection
+/// benefits from SSH socket reuse (mux flags).
+pub fn ssh_command() -> Command {
     let mut cmd = Command::new("/usr/bin/ssh");
     cmd.env("PATH", shell_path());
+    cmd.args(["-o", "ControlMaster=auto"]);
+    cmd.args(["-o", "ControlPath=/tmp/ssh-mux-%r@%h:%p"]);
+    cmd.args(["-o", "ControlPersist=600"]);
     cmd
 }
 

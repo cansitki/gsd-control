@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::Command;
 use tokio::sync::{mpsc, Mutex};
 use std::process::Stdio;
 use tauri::{AppHandle, Emitter};
@@ -37,8 +36,7 @@ pub async fn open_terminal(
     // Connect directly to the workspace via its SSH alias
     let ssh_host = crate::ssh::workspace_ssh_host(&workspace, &coder_user);
 
-    let mut child = Command::new("/usr/bin/ssh")
-        .env("PATH", crate::ssh::shell_path())
+    let mut child = crate::ssh::ssh_command()
         .args([
             "-tt",
             "-o", "StrictHostKeyChecking=no",
@@ -143,8 +141,7 @@ pub async fn open_terminal_tmux(
     // SSH in and attach to the tmux session
     // Set TERM so tmux can use terminal capabilities (clear, colors, etc.)
     let tmux_cmd = format!("TERM=xterm-256color tmux attach-session -t {}", tmux_session);
-    let mut child = Command::new("/usr/bin/ssh")
-        .env("PATH", crate::ssh::shell_path())
+    let mut child = crate::ssh::ssh_command()
         .args([
             "-tt",
             "-o", "StrictHostKeyChecking=no",
