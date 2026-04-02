@@ -53,7 +53,7 @@ export function useDebugLogger() {
       `[${ts()}] Workspaces: ${state.workspaces.map((w) => w.coderName).join(", ") || "none"}`
     );
     addDebugLog(`[${ts()}] Sessions: ${Object.keys(state.sessions).length}`);
-    addDebugLog(`[${ts()}] Tabs: ${state.terminalTabs.length}`);
+    addDebugLog(`[${ts()}] Blocks: ${state.blocks.length}`);
 
     // --- Normal + Extreme: connection status subscription ---
     let prevStatus = state.connection.status;

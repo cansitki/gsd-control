@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type {
   SSHConnection,
   GSDSession,
-  TerminalTab,
+  Block,
   ViewMode,
   AppConfig,
   GSDEvent,
@@ -38,15 +38,15 @@ interface AppState {
   updateSession: (id: string, updates: Partial<GSDSession>) => void;
   setSession: (session: GSDSession) => void;
 
-  // Terminal
-  terminalTabs: TerminalTab[];
-  activeTerminalId: string | null;
-  terminalLayout: "tabs" | "grid-2" | "grid-4" | "grid-6";
-  addTerminalTab: (tab: TerminalTab) => void;
-  removeTerminalTab: (id: string) => void;
-  setActiveTerminal: (id: string) => void;
-  updateTerminalTab: (id: string, updates: Partial<TerminalTab>) => void;
-  setTerminalLayout: (layout: "tabs" | "grid-2" | "grid-4" | "grid-6") => void;
+  // Blocks
+  blocks: Block[];
+  activeBlockId: string | null;
+  blockLayout: "tabs" | "grid-2" | "grid-4" | "grid-6";
+  addBlock: (block: Block) => void;
+  removeBlock: (id: string) => void;
+  setActiveBlock: (id: string) => void;
+  updateBlock: (id: string, updates: Partial<Block>) => void;
+  setBlockLayout: (layout: "tabs" | "grid-2" | "grid-4" | "grid-6") => void;
 
   // View
   currentView: ViewMode;
@@ -168,33 +168,33 @@ export const useAppStore = create<AppState>()(persist((set) => ({
       sessions: { ...state.sessions, [session.id]: session },
     })),
 
-  terminalTabs: [],
-  activeTerminalId: null,
-  terminalLayout: "tabs",
-  addTerminalTab: (tab) =>
+  blocks: [],
+  activeBlockId: null,
+  blockLayout: "tabs",
+  addBlock: (block) =>
     set((state) => ({
-      terminalTabs: [...state.terminalTabs, tab],
-      activeTerminalId: tab.id,
+      blocks: [...state.blocks, block],
+      activeBlockId: block.id,
     })),
-  removeTerminalTab: (id) =>
+  removeBlock: (id) =>
     set((state) => {
-      const remaining = state.terminalTabs.filter((t) => t.id !== id);
+      const remaining = state.blocks.filter((b) => b.id !== id);
       return {
-        terminalTabs: remaining,
-        activeTerminalId:
-          state.activeTerminalId === id
+        blocks: remaining,
+        activeBlockId:
+          state.activeBlockId === id
             ? remaining[0]?.id ?? null
-            : state.activeTerminalId,
+            : state.activeBlockId,
       };
     }),
-  setActiveTerminal: (id) => set({ activeTerminalId: id }),
-  updateTerminalTab: (id, updates) =>
+  setActiveBlock: (id) => set({ activeBlockId: id }),
+  updateBlock: (id, updates) =>
     set((state) => ({
-      terminalTabs: state.terminalTabs.map((t) =>
-        t.id === id ? { ...t, ...updates } : t
+      blocks: state.blocks.map((b) =>
+        b.id === id ? { ...b, ...updates } : b
       ),
     })),
-  setTerminalLayout: (layout) => set({ terminalLayout: layout }),
+  setBlockLayout: (layout) => set({ blockLayout: layout }),
 
   currentView: "dashboard",
   setCurrentView: (view) => set({ currentView: view }),
@@ -227,12 +227,19 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     })),
 }), {
   name: "gsd-control-v3",
-  version: 3,
+  version: 4,
   storage: createJSONStorage(() => localStorage),
   migrate: (persistedState: unknown, _version: number) => {
     const state = persistedState as Partial<AppState> & Record<string, unknown>;
     if (_version < 3) {
       state.debugLevel = "normal";
+    }
+    if (_version < 4) {
+      // Rename terminalLayout → blockLayout
+      if ('terminalLayout' in state) {
+        state.blockLayout = state.terminalLayout as AppState['blockLayout'];
+        delete state.terminalLayout;
+      }
     }
     return state as Partial<AppState>;
   },
@@ -254,7 +261,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     workspaces: state.workspaces,
     currentView: state.currentView,
     selectedProject: state.selectedProject,
-    terminalLayout: state.terminalLayout,
+    blockLayout: state.blockLayout,
     debugLevel: state.debugLevel,
   }),
 }));

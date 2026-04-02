@@ -60,13 +60,18 @@ export interface SSHConnection {
   error: string | null;
 }
 
-export interface TerminalTab {
+export type BlockType = "terminal" | "browser" | "explorer";
+
+export interface Block {
   id: string;
+  type: BlockType;
+  title: string;
   workspace: string;
   project: string;
-  title: string;
-  isActive: boolean;
   tmuxSession?: string;
+  url?: string;
+  remotePath?: string;
+  isActive: boolean;
 }
 
 export interface SSHProfile {
