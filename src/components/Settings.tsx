@@ -102,12 +102,13 @@ function Settings() {
         await invoke("install_update", { githubToken: token });
         setUpdateStatus("Installed! Restarting...");
         await relaunch();
-      } catch {
-        setUpdateStatus(`v${info.version} available — opening download...`);
+      } catch (installErr) {
+        console.error("install_update failed:", installErr);
+        setUpdateStatus(`v${info.version} available — install failed: ${installErr}. Opening download...`);
         const releaseUrl = `https://github.com/cansitki/gsd-control/releases/tag/v${info.version}`;
         invoke("open_url", { url: releaseUrl }).catch(() => {});
         setIsChecking(false);
-        setTimeout(() => setUpdateStatus(""), 8000);
+        setTimeout(() => setUpdateStatus(""), 12000);
       }
     } catch (e) {
       setUpdateStatus(`Failed: ${e}`);
