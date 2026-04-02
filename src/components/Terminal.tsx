@@ -1,6 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { debugInvoke as invoke } from "../lib/debugInvoke";
 import { listen } from "@tauri-apps/api/event";
@@ -13,24 +12,60 @@ interface Props {
   workspace: string;
   project: string;
   visible: boolean;
-  tmuxSession?: string; // attach to this specific session instead of default
+  tmuxSession?: string;
 }
 
 function tmuxSessionName(_tabId: string, project: string): string {
-  const clean = sanitizeShellArg(project);
-  return `gsd-term-${clean}`;
+  return `gsd-term-${sanitizeShellArg(project)}`;
 }
 
 interface ContextMenuState {
   x: number;
   y: number;
-  hasSelection: boolean;
+}
+
+/**
+ * Manually compute cols/rows from container rect and xterm cell dimensions.
+ * This bypasses FitAddon entirely — FitAddon's parentElement measurement
+ * is unreliable with absolute/relative positioning chains.
+ */
+function fitTerminal(
+  term: XTerm,
+  container: HTMLDivElement,
+  tabId: string,
+  connected: boolean,
+  lastCols: React.MutableRefObject<number>,
+  lastRows: React.MutableRefObject<number>,
+) {
+  const core = (term as any)._core;
+  if (!core?._renderService?.dimensions) return;
+
+  const cellWidth = core._renderService.dimensions.css.cell.width;
+  const cellHeight = core._renderService.dimensions.css.cell.height;
+  if (!cellWidth || !cellHeight) return;
+
+  const rect = container.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+
+  // Account for scrollbar width
+  const scrollbarWidth = core.viewport?.scrollBarWidth ?? 0;
+  const cols = Math.max(2, Math.floor((rect.width - scrollbarWidth) / cellWidth));
+  const rows = Math.max(1, Math.floor(rect.height / cellHeight));
+
+  if (cols === term.cols && rows === term.rows) return;
+
+  term.resize(cols, rows);
+  lastCols.current = cols;
+  lastRows.current = rows;
+
+  if (connected) {
+    invoke("terminal_resize", { id: tabId, cols, rows }).catch(() => {});
+  }
 }
 
 function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSessionProp }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
   const connectedRef = useRef(false);
   const connectingRef = useRef(false);
   const mountedRef = useRef(true);
@@ -44,96 +79,61 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
     updateTerminalTabRef.current = useAppStore.getState().updateTerminalTab;
   });
 
+  // Debounced fit — used by resize observers and window events
   const debouncedFit = useCallback(() => {
     if (fitTimerRef.current) clearTimeout(fitTimerRef.current);
     fitTimerRef.current = setTimeout(() => {
       const container = containerRef.current;
-      const fitAddon = fitAddonRef.current;
       const term = terminalRef.current;
-      if (!container || !fitAddon || !term) return;
-      if (container.offsetWidth === 0 || container.offsetHeight === 0) return;
-
-      const dimsBefore = fitAddon.proposeDimensions();
-      fitAddon.fit();
-
-      if (term.cols !== lastColsRef.current || term.rows !== lastRowsRef.current) {
-        console.log(`[Terminal ${tabId}] resize: container=${container.offsetWidth}x${container.offsetHeight} ` +
-          `proposed=${dimsBefore?.cols}x${dimsBefore?.rows} → ${term.cols}x${term.rows}`);
-        lastColsRef.current = term.cols;
-        lastRowsRef.current = term.rows;
-        if (connectedRef.current) {
-          invoke("terminal_resize", {
-            id: tabId,
-            cols: term.cols,
-            rows: term.rows,
-          }).catch(() => {});
-        }
-      }
-    }, 80);
+      if (!container || !term) return;
+      fitTerminal(term, container, tabId, connectedRef.current, lastColsRef, lastRowsRef);
+    }, 50);
   }, [tabId]);
 
+  // Re-fit when tab becomes visible
   useEffect(() => {
-    if (!visible || !fitAddonRef.current || !terminalRef.current) return;
-    const raf = requestAnimationFrame(() => {
-      debouncedFit();
-    });
+    if (!visible || !terminalRef.current || !containerRef.current) return;
+    const raf = requestAnimationFrame(() => debouncedFit());
     return () => cancelAnimationFrame(raf);
   }, [visible, debouncedFit]);
 
-  // Copy selection to clipboard — tries xterm selection first, then tmux buffer
+  // Copy — xterm selection first, then tmux paste buffer
   const handleCopy = useCallback(async () => {
     const term = terminalRef.current;
     if (!term) { setContextMenu(null); return; }
-    
-    // Try xterm's local selection first (from Shift+drag)
     const sel = term.getSelection();
     if (sel) {
       navigator.clipboard.writeText(sel).catch(() => {});
       setContextMenu(null);
       return;
     }
-    
-    // Fall back to tmux's paste buffer (from normal drag with mouse mode on)
     try {
       const buf = await invoke<string>("exec_in_workspace", {
         workspace,
         command: `tmux show-buffer 2>/dev/null || true`,
       });
-      if (buf?.trim()) {
-        navigator.clipboard.writeText(buf.trim()).catch(() => {});
-      }
-    } catch {
-      // ignore
-    }
+      if (buf?.trim()) navigator.clipboard.writeText(buf.trim()).catch(() => {});
+    } catch { /* ignore */ }
     setContextMenu(null);
-  }, [workspace, tabId, project, tmuxSessionProp]);
+  }, [workspace]);
 
-  // Paste from clipboard into terminal
+  // Paste
   const handlePaste = useCallback(() => {
     navigator.clipboard.readText().then((text) => {
       if (!text || !connectedRef.current) return;
       const encoded = new TextEncoder().encode(text);
-      invoke("terminal_write", {
-        id: tabId,
-        data: Array.from(encoded),
-      }).catch(() => {});
+      invoke("terminal_write", { id: tabId, data: Array.from(encoded) }).catch(() => {});
     }).catch(() => {});
     setContextMenu(null);
   }, [tabId]);
 
-  // Select all text in terminal
   const handleSelectAll = useCallback(() => {
-    const term = terminalRef.current;
-    if (!term) return;
-    term.selectAll();
+    terminalRef.current?.selectAll();
     setContextMenu(null);
   }, []);
 
-  // Clear terminal
   const handleClear = useCallback(() => {
-    const term = terminalRef.current;
-    if (!term) return;
-    term.clear();
+    terminalRef.current?.clear();
     setContextMenu(null);
   }, []);
 
@@ -180,66 +180,46 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
       },
     });
 
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
     term.open(containerRef.current);
-
     terminalRef.current = term;
-    fitAddonRef.current = fitAddon;
 
-    // Fit helper — retries if cell dimensions aren't ready yet
-    const doInitialFit = () => {
+    // --- Fit: retry until cell dimensions are ready ---
+    const doFit = () => {
       const el = containerRef.current;
-      if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) return false;
-      const dims = fitAddon.proposeDimensions();
-      if (!dims) return false; // cell size not measured yet
-
-      // Debug: log what FitAddon sees vs container size
-      const parentStyle = window.getComputedStyle(el);
-      console.log(`[Terminal ${tabId}] fit: container=${el.offsetWidth}x${el.offsetHeight} ` +
-        `computedW=${parentStyle.width} proposed=${dims.cols}x${dims.rows} ` +
-        `current=${term.cols}x${term.rows}`);
-
-      fitAddon.fit();
-      lastColsRef.current = term.cols;
-      lastRowsRef.current = term.rows;
-
-      console.log(`[Terminal ${tabId}] after fit: ${term.cols}x${term.rows}`);
-      return true;
-      lastRowsRef.current = term.rows;
+      if (!el || !term) return false;
+      const core = (term as any)._core;
+      const cellW = core?._renderService?.dimensions?.css?.cell?.width;
+      if (!cellW) return false;
+      fitTerminal(term, el, tabId, connectedRef.current, lastColsRef, lastRowsRef);
       return true;
     };
 
-    // Retry fit until it succeeds — cell dimensions may not be ready immediately
-    const retryFit = (attempts: number, delay: number) => {
-      if (!mountedRef.current || attempts <= 0) return;
-      if (doInitialFit()) return; // success
-      setTimeout(() => retryFit(attempts - 1, delay * 1.5), delay);
+    const retryFit = (n: number, ms: number) => {
+      if (!mountedRef.current || n <= 0) return;
+      if (doFit()) return;
+      setTimeout(() => retryFit(n - 1, ms * 1.5), ms);
     };
 
-    // Initial fit — wait for fonts then fit with retries
-    const fontReady = document.fonts?.ready ?? Promise.resolve();
-    fontReady.then(() => {
-      requestAnimationFrame(() => {
-        retryFit(10, 50); // up to 10 attempts, starting at 50ms intervals
-      });
+    // Wait for fonts, then retry fit
+    (document.fonts?.ready ?? Promise.resolve()).then(() => {
+      requestAnimationFrame(() => retryFit(15, 30));
     });
 
-    // Re-fit when fonts load/swap (JetBrains Mono from Google Fonts uses display=swap)
+    // Re-fit on font swap
     const onFontChange = () => debouncedFit();
     document.fonts?.addEventListener?.("loadingdone", onFontChange);
 
-    // Block native context menu on terminal — we show our own
+    // --- Context menu: block native, show custom ---
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      setContextMenu({ x: e.clientX, y: e.clientY, hasSelection: true });
+      setContextMenu({ x: e.clientX, y: e.clientY });
     };
-    containerRef.current.addEventListener("contextmenu", handleContextMenu);
     const containerEl = containerRef.current;
+    containerEl.addEventListener("contextmenu", handleContextMenu);
 
-    // Cmd+C / Ctrl+C: copy if there's a selection, otherwise try tmux buffer, otherwise send interrupt
+    // --- Keyboard: Cmd+C copy, Cmd+V paste ---
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "c") {
         const sel = term.getSelection();
@@ -248,57 +228,42 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
           navigator.clipboard.writeText(sel).catch(() => {});
           return;
         }
-        // Try tmux paste buffer before falling through to Ctrl+C interrupt
         if (e.metaKey) {
           e.preventDefault();
           invoke<string>("exec_in_workspace", {
             workspace,
             command: `tmux show-buffer 2>/dev/null || true`,
           }).then((buf) => {
-            if (buf?.trim()) {
-              navigator.clipboard.writeText(buf.trim()).catch(() => {});
-            }
+            if (buf?.trim()) navigator.clipboard.writeText(buf.trim()).catch(() => {});
           }).catch(() => {});
           return;
         }
-        // Ctrl+C with no selection — pass through as interrupt
       }
-      // Cmd+V / Ctrl+Shift+V: paste
       if ((e.metaKey && e.key === "v") || (e.ctrlKey && e.shiftKey && e.key === "V")) {
         e.preventDefault();
         navigator.clipboard.readText().then((text) => {
           if (!text || !connectedRef.current) return;
           const encoded = new TextEncoder().encode(text);
-          invoke("terminal_write", {
-            id: tabId,
-            data: Array.from(encoded),
-          }).catch(() => {});
+          invoke("terminal_write", { id: tabId, data: Array.from(encoded) }).catch(() => {});
         }).catch(() => {});
       }
     };
-    containerRef.current.addEventListener("keydown", handleKeyDown, true);
+    containerEl.addEventListener("keydown", handleKeyDown, true);
 
-    const unlistenData = listen<number[]>(
-      `terminal_data_${tabId}`,
-      (event) => {
-        if (mountedRef.current) {
-          term.write(new Uint8Array(event.payload));
-        }
+    // --- Data listeners ---
+    const unlistenData = listen<number[]>(`terminal_data_${tabId}`, (event) => {
+      if (mountedRef.current) term.write(new Uint8Array(event.payload));
+    });
+
+    const unlistenClose = listen(`terminal_closed_${tabId}`, () => {
+      if (mountedRef.current) {
+        term.writeln("\r\n\x1b[38;5;242m[Connection closed — press any key to reconnect]\x1b[0m");
+        connectedRef.current = false;
+        connectingRef.current = false;
       }
-    );
+    });
 
-    const unlistenClose = listen(
-      `terminal_closed_${tabId}`,
-      () => {
-        if (mountedRef.current) {
-          term.writeln("\r\n\x1b[38;5;242m[Connection closed — press any key to reconnect]\x1b[0m");
-          connectedRef.current = false;
-          connectingRef.current = false;
-        }
-      }
-    );
-
-    // Use explicit session name if provided, otherwise default
+    // --- Connect ---
     const tmuxName = sanitizeShellArg(tmuxSessionProp || tmuxSessionName(tabId, project));
     const safeProject = sanitizeShellArg(project);
 
@@ -317,9 +282,8 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
           workspace,
           command: `tmux has-session -t ${tmuxName} 2>/dev/null && echo exists || echo missing`,
         });
-        const sessionExists = checkResult.trim() === "exists";
 
-        if (sessionExists) {
+        if (checkResult.trim() === "exists") {
           term.writeln(`\x1b[38;5;242mReattaching to session: ${tmuxName}\x1b[0m`);
         } else {
           term.writeln(`\x1b[38;5;242mCreating session: ${tmuxName}\x1b[0m`);
@@ -331,16 +295,13 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
 
         updateTerminalTabRef.current(tabId, { tmuxSession: tmuxName });
 
-        // Enable tmux mouse mode for scroll wheel support.
-        // Selection: hold Shift while dragging to select in xterm (bypasses tmux).
-        // Copy/paste: use Cmd+C/Cmd+V or right-click context menu.
+        // tmux mouse on for scroll wheel; Shift+drag for xterm selection
         await invoke("exec_in_workspace", {
           workspace,
           command: `tmux set-option -t ${tmuxName} mouse on 2>/dev/null; true`,
         });
 
         term.writeln("");
-
         if (!mountedRef.current) { connectingRef.current = false; return; }
 
         await invoke("terminal_open_tmux", {
@@ -353,31 +314,14 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
         connectedRef.current = true;
         connectingRef.current = false;
 
-        // Clear any garbage escape sequences from tmux attach
         term.reset();
 
-        // Fit after DOM settles — multiple passes at increasing intervals
-        // to catch flex layout resolution, font swap, and Tauri frame sizing.
-        const doFit = () => {
-          const el = containerRef.current;
-          if (el && el.offsetWidth > 0 && el.offsetHeight > 0) {
-            fitAddon.fit();
-            lastColsRef.current = term.cols;
-            lastRowsRef.current = term.rows;
-            invoke("terminal_resize", {
-              id: tabId,
-              cols: term.cols,
-              rows: term.rows,
-            }).catch(() => {});
-          }
-        };
-
+        // Fit after connect — multiple passes
         requestAnimationFrame(() => {
           doFit();
           setTimeout(doFit, 100);
           setTimeout(doFit, 300);
-          setTimeout(doFit, 800);
-          setTimeout(doFit, 2000);
+          setTimeout(doFit, 1000);
         });
       } catch (e) {
         connectingRef.current = false;
@@ -390,38 +334,26 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
 
     connect();
 
+    // --- Input ---
     term.onData((data) => {
       if (!connectedRef.current) {
-        if (!connectingRef.current) {
-          connect();
-        }
+        if (!connectingRef.current) connect();
         return;
       }
-      // Filter out terminal device attribute responses that shouldn't be sent to remote.
-      // These match: ESC[?...c (DA1 response) and ESC[>...c (DA2 response)
       const filtered = data.replace(/\x1b\[\??[\d;]*c/g, "").replace(/\x1b\[>[\d;]*c/g, "");
       if (!filtered) return;
-
       const encoded = new TextEncoder().encode(filtered);
-      invoke("terminal_write", {
-        id: tabId,
-        data: Array.from(encoded),
-      }).catch(() => {});
+      invoke("terminal_write", { id: tabId, data: Array.from(encoded) }).catch(() => {});
     });
 
-    const resizeObserver = new ResizeObserver(() => {
-      debouncedFit();
-    });
-    resizeObserver.observe(containerRef.current);
+    // --- Resize observers ---
+    const resizeObserver = new ResizeObserver(() => debouncedFit());
+    resizeObserver.observe(containerEl);
 
-    // Window resize listener as backup — Tauri window resizes may not
-    // always trigger ResizeObserver synchronously on the container
     const handleWindowResize = () => debouncedFit();
     window.addEventListener("resize", handleWindowResize);
 
-    // Re-render terminal when app comes back from minimize/background.
-    // The xterm canvas goes stale when the window is hidden — force a
-    // refresh + re-fit so the user sees current output without scrolling.
+    // Re-render on app resume from minimize
     const handleVisibility = () => {
       if (document.visibilityState === "visible" && terminalRef.current) {
         terminalRef.current.refresh(0, terminalRef.current.rows - 1);
@@ -429,6 +361,7 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
+
     const handleFocus = () => {
       if (terminalRef.current) {
         terminalRef.current.refresh(0, terminalRef.current.rows - 1);
@@ -452,19 +385,17 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
       invoke("terminal_close", { id: tabId }).catch(() => {});
       term.dispose();
       terminalRef.current = null;
-      fitAddonRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabId, workspace, project, tmuxSessionProp]);
 
   return (
-    <div className="relative w-full h-full">
-      <div
-        ref={containerRef}
-        className="absolute inset-0 bg-[#141a14] overflow-hidden"
-        onClick={() => setContextMenu(null)}
-      />
-
+    <div
+      ref={containerRef}
+      style={{ width: "100%", height: "100%", position: "relative" }}
+      className="bg-[#141a14] overflow-hidden"
+      onClick={() => setContextMenu(null)}
+    >
       {/* Custom context menu */}
       {contextMenu && (
         <div
@@ -479,8 +410,7 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
           >
             <button
               onClick={handleCopy}
-              disabled={!contextMenu.hasSelection}
-              className="w-full text-left px-3 py-1.5 text-xs text-base-text hover:bg-base-bg transition-colors disabled:opacity-30 disabled:cursor-default flex items-center justify-between"
+              className="w-full text-left px-3 py-1.5 text-xs text-base-text hover:bg-base-bg transition-colors flex items-center justify-between"
             >
               <span>Copy</span>
               <span className="text-base-muted ml-4">⌘C</span>
