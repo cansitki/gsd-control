@@ -541,57 +541,8 @@ function Sidebar() {
                     return;
                   }
 
-                  // Check for existing tmux sessions on this workspace
-                  if (connection.status === "connected") {
-                    try {
-                      const output = await invoke<string>("exec_in_workspace", {
-                        workspace: ws.coderName,
-                        command: `tmux list-sessions -F '#{session_name}|||#{session_activity}|||#{session_windows}|||#{?session_attached,attached,detached}' 2>/dev/null || true`,
-                      });
-                      const remoteSessions = output
-                        .split("\n")
-                        .map((l) => l.trim())
-                        .filter((l) => l.length > 0)
-                        .map((line) => {
-                          const [name, activity, windows, attached] = line.split("|||");
-                          // activity is epoch timestamp of last activity
-                          const lastActivity = parseInt(activity, 10) || 0;
-                          const now = Math.floor(Date.now() / 1000);
-                          const idleSeconds = now - lastActivity;
-                          const isIdle = idleSeconds > 60; // idle if no activity for 1min
-                          return {
-                            name,
-                            windows: parseInt(windows, 10) || 1,
-                            attached: attached === "attached",
-                            isIdle,
-                            idleSeconds,
-                          };
-                        });
-
-                      // Filter sessions related to this project
-                      const projectSessions = remoteSessions.filter(
-                        (s) =>
-                          s.name === proj.path ||
-                          s.name === proj.path.replace(/\//g, "-") ||
-                          s.name.includes(proj.path) ||
-                          s.name.startsWith(`gsd-term-${proj.path}`)
-                      );
-
-                      if (projectSessions.length > 0) {
-                        setSessionPicker({
-                          workspace: ws.coderName,
-                          wsDisplay: ws.displayName,
-                          project: proj,
-                          sessions: projectSessions,
-                        });
-                        return;
-                      }
-                    } catch {
-                      // Can't reach workspace, just create new
-                    }
-                  }
-
-                  // No existing sessions — create new tab
+                  // Open terminal tab immediately — Terminal component handles
+                  // tmux session creation/attachment internally
                   const id = `term-${Date.now()}`;
                   addTerminalTab({
                     id,
