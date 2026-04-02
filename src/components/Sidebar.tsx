@@ -261,6 +261,8 @@ function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState("");
   const [testing, setTesting] = useState(false);
   const [parsed, setParsed] = useState(false);
+  const [discoveredProjects, setDiscoveredProjects] = useState<string[] | null>(null);
+  const [done, setDone] = useState(false);
 
   // Parse SSH command from Coder: "ssh coder.workspace" or "ssh main.workspace.user.coder"
   const handleParse = () => {
@@ -297,7 +299,9 @@ function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
     if (workspaces.some((w) => w.coderName === name)) { setStatus("Workspace already exists"); return; }
 
     setTesting(true);
-    setStatus("Testing connection...");
+    setStatus("Connecting...");
+
+    // Test connection
     let reachable = false;
     try {
       const result = await invoke<{ connected: boolean; error: string | null }>(
@@ -305,78 +309,111 @@ function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
         { workspace: name }
       );
       reachable = !!result.connected;
-      if (!result.connected) {
-        setStatus("Warning: could not reach workspace. Added anyway.");
-      }
     } catch {
-      setStatus("Warning: could not reach workspace. Added anyway.");
+      // unreachable
     }
 
+    // Add workspace to store
+    const displayName = wsDisplay.trim() || name;
     const store = useAppStore.getState();
     useAppStore.setState({
       workspaces: [
         ...store.workspaces,
-        { coderName: name, displayName: wsDisplay.trim() || name, projects: [] },
+        { coderName: name, displayName, projects: [] },
       ],
     });
 
-    // Auto-discover projects with .gsd directories
-    if (reachable) {
-      setStatus("Discovering projects...");
-      try {
-        const output = await invoke<string>("exec_in_workspace", {
-          workspace: name,
-          command: "for d in ~/*/; do [ -d \"$d/.gsd\" ] && basename \"$d\"; done 2>/dev/null",
-        });
-        const projects = output
-          .split("\n")
-          .map((l) => l.trim())
-          .filter((l) => l && !l.startsWith("."));
-
-        if (projects.length > 0) {
-          const currentStore = useAppStore.getState();
-          const ws = currentStore.workspaces.find((w) => w.coderName === name);
-          if (ws) {
-            const newProjects = projects
-              .filter((p) => !ws.projects.some((existing) => existing.path === p))
-              .map((p) => ({ path: p, displayName: p }));
-            if (newProjects.length > 0) {
-              useAppStore.setState({
-                workspaces: currentStore.workspaces.map((w) =>
-                  w.coderName === name
-                    ? { ...w, projects: [...w.projects, ...newProjects] }
-                    : w
-                ),
-              });
-            }
-          }
-          setStatus(`✓ Found ${projects.length} project${projects.length !== 1 ? "s" : ""}`);
-        } else {
-          setStatus("Added. No GSD projects found — add them from the sidebar.");
-        }
-      } catch {
-        setStatus("Added workspace. Could not auto-discover projects.");
-      }
+    if (!reachable) {
+      setStatus("⚠ Could not reach workspace. Added without projects.");
       setTesting(false);
-      setTimeout(() => onClose(), 1500);
-    } else {
-      setTesting(false);
-      onClose();
+      setDone(true);
+      return;
     }
+
+    // Auto-discover projects
+    setStatus("Discovering projects...");
+    try {
+      const output = await invoke<string>("exec_in_workspace", {
+        workspace: name,
+        command: "for d in ~/*/; do [ -d \"$d/.gsd\" ] && basename \"$d\"; done 2>/dev/null",
+      });
+      const projects = output
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith("."));
+
+      if (projects.length > 0) {
+        // Add discovered projects to the workspace
+        const currentStore = useAppStore.getState();
+        useAppStore.setState({
+          workspaces: currentStore.workspaces.map((w) =>
+            w.coderName === name
+              ? { ...w, projects: projects.map((p) => ({ path: p, displayName: p })) }
+              : w
+          ),
+        });
+        setDiscoveredProjects(projects);
+        setStatus("");
+      } else {
+        setDiscoveredProjects([]);
+        setStatus("No GSD projects found. You can add projects from the sidebar.");
+      }
+    } catch {
+      setDiscoveredProjects([]);
+      setStatus("Could not scan for projects.");
+    }
+    setTesting(false);
+    setDone(true);
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-base-surface border border-base-border rounded-lg p-5 w-96 shadow-xl">
         <h3 className="text-xs font-bold text-base-text mb-1">Add Workspace</h3>
-        <p className="text-xs text-base-muted mb-4">
-          Go to your Coder dashboard → select workspace → "Connect via SSH" → copy the command from step 2 and paste it below.
-        </p>
+        {!done && (
+          <p className="text-xs text-base-muted mb-4">
+            Paste the SSH command from Coder, or type the workspace name.
+          </p>
+        )}
         <div className="space-y-3">
-          {!parsed ? (
+          {done ? (
+            /* ── Results screen ── */
+            <>
+              <div className="bg-base-bg border border-accent-green/30 rounded p-3">
+                <p className="text-xs text-accent-green font-semibold mb-1">
+                  ✓ Workspace "{wsDisplay.trim() || wsName}" added
+                </p>
+                {discoveredProjects && discoveredProjects.length > 0 ? (
+                  <div className="mt-2">
+                    <p className="text-xs text-base-muted mb-1.5">
+                      {discoveredProjects.length} project{discoveredProjects.length !== 1 ? "s" : ""} discovered and added:
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {discoveredProjects.map((p) => (
+                        <span key={p} className="text-xs px-2 py-0.5 rounded bg-accent-orange/10 text-accent-orange border border-accent-orange/20">
+                          {p}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-base-muted mt-1">
+                    {status || "No GSD projects found. Add them from the sidebar with +"}
+                  </p>
+                )}
+              </div>
+              <div className="flex justify-end pt-1">
+                <button onClick={onClose}
+                  className="text-xs px-4 py-1.5 rounded bg-accent-orange text-white hover:opacity-90 transition-opacity">
+                  Done
+                </button>
+              </div>
+            </>
+          ) : !parsed ? (
+            /* ── Parse screen ── */
             <>
               <div>
-                <label className="block text-xs text-base-muted mb-1">Paste SSH command from Coder</label>
+                <label className="block text-xs text-base-muted mb-1">SSH command or workspace name</label>
                 <input type="text" value={sshCommand}
                   onChange={(e) => setSshCommand(e.target.value)}
                   placeholder="ssh coder.my-workspace"
@@ -384,7 +421,7 @@ function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
                   autoFocus
                   onKeyDown={(e) => e.key === "Enter" && handleParse()} />
                 <p className="text-xs text-base-muted/60 mt-1">
-                  Formats: <span className="text-base-muted">ssh coder.workspace</span> or <span className="text-base-muted">ssh main.workspace.user.coder</span> or just the workspace name
+                  <span className="text-base-muted">ssh coder.workspace</span> or <span className="text-base-muted">main.ws.user.coder</span> or just the name
                 </p>
               </div>
               {status && <p className="text-xs text-accent-red">{status}</p>}
@@ -395,14 +432,15 @@ function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
                 </button>
                 <button onClick={handleParse} disabled={!sshCommand.trim()}
                   className="text-xs px-3 py-1.5 rounded bg-accent-orange text-white hover:opacity-90 transition-opacity disabled:opacity-30">
-                  Parse
+                  Next
                 </button>
               </div>
             </>
           ) : (
+            /* ── Confirm screen ── */
             <>
               <div className="bg-base-bg border border-accent-green/30 rounded p-2">
-                <p className="text-xs text-accent-green">✓ Detected workspace: <span className="font-semibold">{wsName}</span></p>
+                <p className="text-xs text-accent-green">✓ Workspace: <span className="font-semibold">{wsName}</span></p>
               </div>
               <div>
                 <label className="block text-xs text-base-muted mb-1">Display Name (optional)</label>
@@ -412,15 +450,16 @@ function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
                   className="w-full bg-base-bg border border-base-border rounded px-3 py-1.5 text-xs text-base-text placeholder-base-muted focus:border-accent-orange/50 outline-none"
                   onKeyDown={(e) => e.key === "Enter" && handleAdd()} />
               </div>
-              {status && <p className="text-xs text-accent-red">{status}</p>}
+              {status && <p className="text-xs text-base-muted">{status}</p>}
               <div className="flex gap-2 justify-end pt-1">
                 <button onClick={() => { setParsed(false); setWsName(""); }}
-                  className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors">
+                  disabled={testing}
+                  className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors disabled:opacity-50">
                   Back
                 </button>
                 <button onClick={handleAdd} disabled={testing}
                   className="text-xs px-3 py-1.5 rounded bg-accent-orange text-white hover:opacity-90 transition-opacity disabled:opacity-50">
-                  {testing ? "Adding..." : "Add Workspace"}
+                  {testing ? status || "Adding..." : "Add & Discover Projects"}
                 </button>
               </div>
             </>

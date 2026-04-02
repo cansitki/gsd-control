@@ -639,24 +639,82 @@ function WorkspaceCard({
   connected: boolean;
   onRemove: () => void;
 }) {
-  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testLog, setTestLog] = useState<string[]>([]);
   const [testing, setTesting] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const addProject = useAppStore((s) => s.addProject);
 
   const handleTest = async () => {
     setTesting(true);
-    setTestResult(null);
+    const log: string[] = [];
+    const addLog = (msg: string) => { log.push(msg); setTestLog([...log]); };
+
+    const alias = `main.${ws.coderName}.${coderUser || "?"}.coder`;
+    addLog(`SSH alias: ${alias}`);
+    addLog(`Testing connection...`);
+
     try {
-      await invoke("exec_in_workspace", {
+      const result = await invoke<string>("exec_in_workspace", {
         workspace: ws.coderName,
         command: "echo ok",
       });
-      setTestResult("✓ Reachable");
+      if (result.trim() === "ok") {
+        addLog(`✓ Connection OK`);
+      } else {
+        addLog(`⚠ Unexpected response: ${result.trim()}`);
+      }
     } catch (e) {
-      setTestResult(`✗ ${e}`);
+      addLog(`✗ Connection failed: ${e}`);
+      setTesting(false);
+      return;
     }
+
+    // Check tmux
+    addLog(`Checking tmux sessions...`);
+    try {
+      const tmux = await invoke<string>("exec_in_workspace", {
+        workspace: ws.coderName,
+        command: "tmux list-sessions -F '#{session_name} (#{session_windows}w, #{?session_attached,attached,detached})' 2>/dev/null || echo 'no sessions'",
+      });
+      const lines = tmux.trim().split("\n").filter((l) => l.trim());
+      if (lines.length === 1 && lines[0] === "no sessions") {
+        addLog(`  No tmux sessions`);
+      } else {
+        for (const line of lines) {
+          addLog(`  ${line.trim()}`);
+        }
+      }
+    } catch {
+      addLog(`  Could not list tmux sessions`);
+    }
+
+    // Check GSD projects
+    addLog(`Scanning for GSD projects...`);
+    try {
+      const projects = await invoke<string>("exec_in_workspace", {
+        workspace: ws.coderName,
+        command: "for d in ~/*/; do [ -d \"$d/.gsd\" ] && basename \"$d\"; done 2>/dev/null",
+      });
+      const found = projects.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("."));
+      if (found.length > 0) {
+        addLog(`  Found ${found.length}: ${found.join(", ")}`);
+        // Auto-add any missing projects
+        const missing = found.filter((p) => !ws.projects.some((ep) => ep.path === p));
+        if (missing.length > 0) {
+          for (const p of missing) {
+            addProject(ws.coderName, { path: p, displayName: p });
+          }
+          addLog(`  ✓ Added ${missing.length} new project${missing.length !== 1 ? "s" : ""}`);
+        }
+      } else {
+        addLog(`  No GSD projects found`);
+      }
+    } catch {
+      addLog(`  Could not scan projects`);
+    }
+
+    addLog(`Done.`);
     setTesting(false);
-    setTimeout(() => setTestResult(null), 6000);
   };
 
   return (
@@ -701,9 +759,18 @@ function WorkspaceCard({
         <div>SSH alias: <span className="text-base-text font-mono">main.{ws.coderName}.{coderUser || "?"}.coder</span></div>
         <div>Projects: <span className="text-base-text">{ws.projects.length > 0 ? ws.projects.map((p) => p.displayName).join(", ") : "none"}</span></div>
       </div>
-      {testResult && (
-        <div className={`text-xs mt-2 ${testResult.startsWith("✓") ? "text-accent-green" : "text-accent-red"}`}>
-          {testResult}
+      {testLog.length > 0 && (
+        <div className="mt-2 bg-base-surface border border-base-border rounded p-2 max-h-[150px] overflow-y-auto font-mono">
+          {testLog.map((line, i) => (
+            <div key={i} className={`text-xs py-0.5 ${
+              line.startsWith("✓") ? "text-accent-green"
+                : line.startsWith("✗") ? "text-accent-red"
+                  : line.startsWith("⚠") ? "text-accent-amber"
+                    : "text-base-muted"
+            }`}>
+              {line}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -725,6 +792,8 @@ function AddWorkspaceInline({
   const [status, setStatus] = useState("");
   const [parsed, setParsed] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testLog, setTestLog] = useState<string[]>([]);
+  const [done, setDone] = useState(false);
 
   const handleParse = () => {
     const cmd = sshCommand.trim();
@@ -742,112 +811,130 @@ function AddWorkspaceInline({
     if (workspaces.some((w) => w.coderName === name)) { setStatus("Workspace already exists"); return; }
 
     setTesting(true);
-    setStatus("Testing connection...");
+    const log: string[] = [];
+    const addLog = (msg: string) => { log.push(msg); setTestLog([...log]); };
+
+    addLog(`Connecting to ${name}...`);
     let reachable = false;
     try {
       await invoke("exec_in_workspace", { workspace: name, command: "echo ok" });
       reachable = true;
-      setStatus("");
-    } catch {
-      setStatus("Warning: could not reach workspace. Added anyway.");
+      addLog(`✓ Connection OK`);
+    } catch (e) {
+      addLog(`✗ Connection failed: ${e}`);
     }
 
+    // Add workspace
+    const displayName = wsDisplay.trim() || name;
     const store = useAppStore.getState();
     useAppStore.setState({
       workspaces: [
         ...store.workspaces,
-        { coderName: name, displayName: wsDisplay.trim() || name, projects: [] },
+        { coderName: name, displayName, projects: [] },
       ],
     });
+    addLog(`✓ Workspace "${displayName}" added`);
 
-    // Auto-discover projects with .gsd directories on the workspace
     if (reachable) {
-      setStatus("Discovering projects...");
+      addLog(`Scanning for GSD projects...`);
       try {
         const output = await invoke<string>("exec_in_workspace", {
           workspace: name,
           command: "for d in ~/*/; do [ -d \"$d/.gsd\" ] && basename \"$d\"; done 2>/dev/null",
         });
-        const projects = output
-          .split("\n")
-          .map((l) => l.trim())
-          .filter((l) => l && !l.startsWith("."));
-
+        const projects = output.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("."));
         if (projects.length > 0) {
-          // Add all discovered projects
           const currentStore = useAppStore.getState();
-          const ws = currentStore.workspaces.find((w) => w.coderName === name);
-          if (ws) {
-            const newProjects = projects
-              .filter((p) => !ws.projects.some((existing) => existing.path === p))
-              .map((p) => ({ path: p, displayName: p }));
-            if (newProjects.length > 0) {
-              useAppStore.setState({
-                workspaces: currentStore.workspaces.map((w) =>
-                  w.coderName === name
-                    ? { ...w, projects: [...w.projects, ...newProjects] }
-                    : w
-                ),
-              });
-            }
-          }
-          setStatus(`✓ Found ${projects.length} project${projects.length !== 1 ? "s" : ""}`);
+          useAppStore.setState({
+            workspaces: currentStore.workspaces.map((w) =>
+              w.coderName === name
+                ? { ...w, projects: projects.map((p) => ({ path: p, displayName: p })) }
+                : w
+            ),
+          });
+          addLog(`✓ Found ${projects.length} project${projects.length !== 1 ? "s" : ""}: ${projects.join(", ")}`);
         } else {
-          setStatus("No GSD projects found — you can add them manually from the sidebar.");
+          addLog(`  No GSD projects found — add from sidebar`);
         }
       } catch {
-        setStatus("Added workspace. Could not auto-discover projects.");
+        addLog(`  Could not scan for projects`);
       }
     }
 
+    addLog(`Done.`);
     setTesting(false);
-    // Auto-close after a short delay so user sees the discovery result
-    setTimeout(() => onClose(), reachable ? 1500 : 500);
+    setDone(true);
   };
 
   return (
     <div className="bg-base-bg border border-accent-green/40 rounded p-4 space-y-3">
       <div className="text-xs font-semibold text-base-text mb-1">Add Workspace</div>
-      <p className="text-xs text-base-muted">
-        Paste the SSH command from Coder, or type the workspace name directly.
-      </p>
-      {!parsed ? (
+      {done ? (
         <>
+          <div className="bg-base-surface border border-base-border rounded p-2 max-h-[150px] overflow-y-auto font-mono">
+            {testLog.map((line, i) => (
+              <div key={i} className={`text-xs py-0.5 ${
+                line.startsWith("✓") ? "text-accent-green"
+                  : line.startsWith("✗") ? "text-accent-red"
+                    : "text-base-muted"
+              }`}>{line}</div>
+            ))}
+          </div>
+          <div className="flex justify-end">
+            <button onClick={onClose}
+              className="text-xs px-3 py-1.5 rounded bg-accent-orange text-white hover:opacity-90 transition-opacity">
+              Done
+            </button>
+          </div>
+        </>
+      ) : !parsed ? (
+        <>
+          <p className="text-xs text-base-muted">
+            Paste the SSH command from Coder, or type the workspace name.
+          </p>
           <Field
             label="SSH Command or Workspace Name"
             value={sshCommand}
             onChange={setSshCommand}
             placeholder='ssh coder.my-workspace  or  my-workspace'
           />
+          {status && <p className="text-xs text-accent-red">{status}</p>}
           <div className="flex gap-2">
-            <button
-              onClick={handleParse}
-              disabled={!sshCommand.trim()}
-              className="text-xs px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors disabled:opacity-50"
-            >
-              Parse
+            <button onClick={handleParse} disabled={!sshCommand.trim()}
+              className="text-xs px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors disabled:opacity-50">
+              Next
             </button>
             <button onClick={onClose} className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors">Cancel</button>
           </div>
         </>
       ) : (
         <>
-          <Field label="Workspace Name (Coder)" value={wsName} onChange={setWsName} placeholder="workspace-name" />
+          <Field label="Workspace Name" value={wsName} onChange={setWsName} placeholder="workspace-name" />
           <Field label="Display Name (optional)" value={wsDisplay} onChange={setWsDisplay} placeholder={wsName || "Display name"} />
+          {testLog.length > 0 && (
+            <div className="bg-base-surface border border-base-border rounded p-2 max-h-[100px] overflow-y-auto font-mono">
+              {testLog.map((line, i) => (
+                <div key={i} className={`text-xs py-0.5 ${
+                  line.startsWith("✓") ? "text-accent-green"
+                    : line.startsWith("✗") ? "text-accent-red"
+                      : "text-base-muted"
+                }`}>{line}</div>
+              ))}
+            </div>
+          )}
+          {status && <p className="text-xs text-accent-amber">{status}</p>}
           <div className="flex gap-2">
-            <button
-              onClick={handleAdd}
-              disabled={testing || !wsName.trim()}
-              className="text-xs px-3 py-1.5 rounded border border-accent-green/30 text-accent-green hover:bg-accent-green/10 transition-colors disabled:opacity-50"
-            >
-              {testing ? "Testing..." : "Add Workspace"}
+            <button onClick={handleAdd} disabled={testing || !wsName.trim()}
+              className="text-xs px-3 py-1.5 rounded border border-accent-green/30 text-accent-green hover:bg-accent-green/10 transition-colors disabled:opacity-50">
+              {testing ? "Adding..." : "Add & Discover"}
             </button>
-            <button onClick={() => { setParsed(false); setSshCommand(""); }} className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors">Back</button>
-            <button onClick={onClose} className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors">Cancel</button>
+            <button onClick={() => { setParsed(false); setSshCommand(""); }} disabled={testing}
+              className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors disabled:opacity-50">Back</button>
+            <button onClick={onClose} disabled={testing}
+              className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors disabled:opacity-50">Cancel</button>
           </div>
         </>
       )}
-      {status && <p className="text-xs text-accent-amber">{status}</p>}
     </div>
   );
 }
