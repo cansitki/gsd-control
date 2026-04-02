@@ -26,6 +26,9 @@ interface AppState {
 
   // Workspaces
   workspaces: WorkspaceConfig[];
+  addWorkspace: (workspace: WorkspaceConfig) => void;
+  removeWorkspace: (coderName: string) => void;
+  updateWorkspace: (coderName: string, updates: Partial<WorkspaceConfig>) => void;
   addProject: (coderName: string, project: ProjectConfig) => void;
   removeProject: (coderName: string, projectPath: string) => void;
 
@@ -108,6 +111,20 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   _setHasHydrated: (v) => set({ _hasHydrated: v }),
 
   workspaces: WORKSPACES,
+  addWorkspace: (workspace) =>
+    set((state) => ({
+      workspaces: [...state.workspaces, workspace],
+    })),
+  removeWorkspace: (coderName) =>
+    set((state) => ({
+      workspaces: state.workspaces.filter((ws) => ws.coderName !== coderName),
+    })),
+  updateWorkspace: (coderName, updates) =>
+    set((state) => ({
+      workspaces: state.workspaces.map((ws) =>
+        ws.coderName === coderName ? { ...ws, ...updates } : ws
+      ),
+    })),
   addProject: (coderName, project) =>
     set((state) => {
       const exists = state.workspaces.some((ws) => ws.coderName === coderName);
@@ -216,6 +233,9 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   name: "gsd-control-v2",
   version: 2,
   storage: createJSONStorage(() => localStorage),
+  migrate: (persistedState: unknown, _version: number) => {
+    return persistedState as Partial<AppState>;
+  },
   onRehydrateStorage: () => (state) => {
     state?._setHasHydrated(true);
   },

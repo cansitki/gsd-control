@@ -203,11 +203,7 @@ function Setup() {
         addProject(workspace, { path: project, displayName: project });
         // Set display name if different
         if (ws && ws.display !== ws.name) {
-          const store = useAppStore.getState();
-          const updated = store.workspaces.map((w) =>
-            w.coderName === workspace ? { ...w, displayName: ws.display } : w
-          );
-          useAppStore.setState({ workspaces: updated });
+          useAppStore.getState().updateWorkspace(workspace, { displayName: ws.display });
         }
       }
 

@@ -315,13 +315,7 @@ function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
 
     // Add workspace to store
     const displayName = wsDisplay.trim() || name;
-    const store = useAppStore.getState();
-    useAppStore.setState({
-      workspaces: [
-        ...store.workspaces,
-        { coderName: name, displayName, projects: [] },
-      ],
-    });
+    useAppStore.getState().addWorkspace({ coderName: name, displayName, projects: [] });
 
     if (!reachable) {
       setStatus("⚠ Could not reach workspace. Added without projects.");
@@ -344,13 +338,8 @@ function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
 
       if (projects.length > 0) {
         // Add discovered projects to the workspace
-        const currentStore = useAppStore.getState();
-        useAppStore.setState({
-          workspaces: currentStore.workspaces.map((w) =>
-            w.coderName === name
-              ? { ...w, projects: projects.map((p) => ({ path: p, displayName: p })) }
-              : w
-          ),
+        useAppStore.getState().updateWorkspace(name, {
+          projects: projects.map((p) => ({ path: p, displayName: p })),
         });
         setDiscoveredProjects(projects);
         setStatus("");
@@ -803,12 +792,7 @@ function Sidebar() {
               </button>
               <button
                 onClick={() => {
-                  const store = useAppStore.getState();
-                  useAppStore.setState({
-                    workspaces: store.workspaces.filter(
-                      (w) => w.coderName !== confirmRemoveWorkspace.coderName
-                    ),
-                  });
+                  useAppStore.getState().removeWorkspace(confirmRemoveWorkspace.coderName);
                   setConfirmRemoveWorkspace(null);
                 }}
                 className="text-xs px-3 py-1.5 rounded bg-accent-red text-white hover:opacity-90 transition-opacity"

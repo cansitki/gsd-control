@@ -189,10 +189,7 @@ function Settings() {
   // ── Workspace helpers ─────────────────────────────────────────────────
 
   const handleRemoveWorkspace = (coderName: string) => {
-    const current = useAppStore.getState().workspaces;
-    useAppStore.setState({
-      workspaces: current.filter((w) => w.coderName !== coderName),
-    });
+    useAppStore.getState().removeWorkspace(coderName);
   };
 
   return (
@@ -827,13 +824,7 @@ function AddWorkspaceInline({
 
     // Add workspace
     const displayName = wsDisplay.trim() || name;
-    const store = useAppStore.getState();
-    useAppStore.setState({
-      workspaces: [
-        ...store.workspaces,
-        { coderName: name, displayName, projects: [] },
-      ],
-    });
+    useAppStore.getState().addWorkspace({ coderName: name, displayName, projects: [] });
     addLog(`✓ Workspace "${displayName}" added`);
 
     if (reachable) {
@@ -845,13 +836,8 @@ function AddWorkspaceInline({
         });
         const projects = output.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("."));
         if (projects.length > 0) {
-          const currentStore = useAppStore.getState();
-          useAppStore.setState({
-            workspaces: currentStore.workspaces.map((w) =>
-              w.coderName === name
-                ? { ...w, projects: projects.map((p) => ({ path: p, displayName: p })) }
-                : w
-            ),
+          useAppStore.getState().updateWorkspace(name, {
+            projects: projects.map((p) => ({ path: p, displayName: p })),
           });
           addLog(`✓ Found ${projects.length} project${projects.length !== 1 ? "s" : ""}: ${projects.join(", ")}`);
         } else {
