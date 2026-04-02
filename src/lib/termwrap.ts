@@ -104,6 +104,8 @@ export class TermWrap {
       webglAddon.onContextLoss(() => {
         console.warn("[TermWrap] WebGL context lost — falling back to DOM renderer");
         webglAddon.dispose();
+        // Force a full refresh so the DOM renderer repaints all content
+        this.terminal.refresh(0, this.terminal.rows - 1);
       });
       this.terminal.loadAddon(webglAddon);
     } catch (err) {

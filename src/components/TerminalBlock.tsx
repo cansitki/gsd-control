@@ -122,6 +122,8 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
     mountedRef.current = true;
     connectedRef.current = false;
     connectingRef.current = false;
+    // Track intentional close to suppress stale close events from our own terminal_close call
+    let intentionalClose = false;
 
     const tw = new TermWrap(containerRef.current, {
       fontSize: 13,
@@ -131,6 +133,8 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         }
       },
       onClose: () => {
+        // Ignore close events triggered by our own pre-connect terminal_close call
+        if (intentionalClose) return;
         if (mountedRef.current) {
           tw.write("\r\n\x1b[38;5;242m[Connection closed — press any key to reconnect]\x1b[0m");
           connectedRef.current = false;
@@ -209,7 +213,12 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
       tw.write(`\x1b[38;5;242mConnecting...\x1b[0m\r\n`);
 
       try {
+        // Flag to suppress the close event from our own pre-connect cleanup
+        intentionalClose = true;
         await invoke("terminal_close", { id: tabId }).catch(() => {});
+        // Small delay to let any stale close event drain before we clear the flag
+        await new Promise((r) => setTimeout(r, 50));
+        intentionalClose = false;
 
         const checkResult = await invoke<string>("exec_in_workspace", {
           workspace,
@@ -246,12 +255,19 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         connectedRef.current = true;
         connectingRef.current = false;
 
-        tw.terminal.reset();
+        // Clear screen content but don't fully reset terminal state —
+        // terminal.reset() can leave WebGL renderer in a bad state
+        tw.terminal.clear();
+        tw.write("\x1b[H\x1b[2J");  // CSI clear screen + home cursor
 
         // Fit after connect — TermWrap debounce handles batching
         requestAnimationFrame(() => {
           tw.fit();
-          setTimeout(() => tw.fit(), 100);
+          // Force a full visual refresh after fit to kick the WebGL renderer
+          setTimeout(() => {
+            tw.fit();
+            tw.terminal.refresh(0, tw.terminal.rows - 1);
+          }, 100);
           setTimeout(() => tw.fit(), 300);
           setTimeout(() => tw.fit(), 1000);
         });
