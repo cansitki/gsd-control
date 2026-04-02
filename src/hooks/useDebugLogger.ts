@@ -97,6 +97,7 @@ export function useDebugLogger() {
       const unsubState = useAppStore.subscribe((next) => {
         const changedKeys: string[] = [];
         for (const key of Object.keys(next) as (keyof typeof next)[]) {
+          if (key === "debugLogs") continue; // skip — addLog mutates debugLogs, tracking it causes infinite recursion
           if (next[key] !== prevState[key]) {
             changedKeys.push(key);
           }
