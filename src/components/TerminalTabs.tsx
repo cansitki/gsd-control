@@ -25,31 +25,39 @@ function SessionManager({ onClose }: { onClose: () => void }) {
       return;
     }
     setLoading(true);
-    const all: TmuxSession[] = [];
-    for (const ws of workspaces) {
-      try {
+
+    const results = await Promise.allSettled(
+      workspaces.map(async (ws) => {
         const output = await invoke<string>("exec_in_workspace", {
           workspace: ws.coderName,
           command:
             "tmux list-sessions -F '#{session_name}' 2>/dev/null || true",
         });
+        const sessions: TmuxSession[] = [];
         for (const line of output.split("\n")) {
           const name = line.trim();
           if (!name) continue;
           const attached = terminalTabs.some(
             (t) => t.tmuxSession === name && t.workspace === ws.coderName
           );
-          all.push({
+          sessions.push({
             name,
             workspace: ws.coderName,
             workspaceDisplay: ws.displayName,
             attached,
           });
         }
-      } catch {
-        // workspace unreachable
+        return sessions;
+      })
+    );
+
+    const all: TmuxSession[] = [];
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        all.push(...result.value);
       }
     }
+
     setSessions(all);
     setLoading(false);
   };

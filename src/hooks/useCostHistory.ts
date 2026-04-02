@@ -86,6 +86,7 @@ function getDateRange(range: DateRange): string[] {
 
 export function useCostHistory(range: DateRange): UseCostHistoryResult {
   const workspaces = useAppStore((s) => s.workspaces);
+  const connection = useAppStore((s) => s.connection);
   const [data, setData] = useState<CostDataPoint[]>([]);
   const [totalCost, setTotalCost] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -96,56 +97,64 @@ export function useCostHistory(range: DateRange): UseCostHistoryResult {
     const dateRange = getDateRange(range);
     const cutoffDate = dateRange[0];
 
-    for (const ws of workspaces) {
-      for (const proj of ws.projects) {
+    // Flatten workspace×project pairs and fetch in parallel
+    const pairs = workspaces.flatMap((ws) =>
+      ws.projects.map((proj) => ({ ws, proj }))
+    );
+
+    const results = await Promise.allSettled(
+      pairs.map(async ({ ws, proj }) => {
+        const raw = await invoke<string>("exec_in_workspace", {
+          workspace: ws.coderName,
+          command: `cat /home/coder/${proj.path}/.gsd/metrics.json 2>/dev/null || echo '{\"units\":[]}'`,
+        });
+
+        let metrics: MetricsJson;
         try {
-          const raw = await invoke<string>("exec_in_workspace", {
-            workspace: ws.coderName,
-            command: `cat /home/coder/${proj.path}/.gsd/metrics.json 2>/dev/null || echo '{\"units\":[]}'`,
-          });
-
-          let metrics: MetricsJson;
-          try {
-            metrics = JSON.parse(raw);
-          } catch {
-            continue;
-          }
-
-          if (!metrics.units || !Array.isArray(metrics.units)) continue;
-
-          const dailyBuckets: Record<string, number> = {};
-
-          for (const unit of metrics.units) {
-            if (typeof unit.cost !== "number" || typeof unit.startedAt !== "number") continue;
-            const date = formatDate(unit.startedAt);
-            if (date < cutoffDate) continue;
-            dailyBuckets[date] = (dailyBuckets[date] ?? 0) + unit.cost;
-          }
-
-          for (const date of dateRange) {
-            const cost = dailyBuckets[date] ?? 0;
-            if (cost > 0) {
-              allPoints.push({
-                date,
-                cost,
-                project: proj.displayName,
-              });
-            }
-          }
+          metrics = JSON.parse(raw);
         } catch {
-          // Workspace unreachable or command failed — skip
+          return [];
         }
+
+        if (!metrics.units || !Array.isArray(metrics.units)) return [];
+
+        const dailyBuckets: Record<string, number> = {};
+        for (const unit of metrics.units) {
+          if (typeof unit.cost !== "number" || typeof unit.startedAt !== "number") continue;
+          const date = formatDate(unit.startedAt);
+          if (date < cutoffDate) continue;
+          dailyBuckets[date] = (dailyBuckets[date] ?? 0) + unit.cost;
+        }
+
+        const points: CostDataPoint[] = [];
+        for (const date of dateRange) {
+          const cost = dailyBuckets[date] ?? 0;
+          if (cost > 0) {
+            points.push({ date, cost, project: proj.displayName });
+          }
+        }
+        return points;
+      })
+    );
+
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        allPoints.push(...result.value);
       }
     }
 
     // Ensure every date/project combo exists for consistent stacking
+    // Use Map for O(1) lookup instead of O(n²) .find()
     const projects = [...new Set(allPoints.map((p) => p.project))];
+    const pointMap = new Map<string, CostDataPoint>();
+    for (const point of allPoints) {
+      pointMap.set(`${point.date}:${point.project}`, point);
+    }
+
     const filledPoints: CostDataPoint[] = [];
     for (const date of dateRange) {
       for (const project of projects) {
-        const existing = allPoints.find(
-          (p) => p.date === date && p.project === project
-        );
+        const existing = pointMap.get(`${date}:${project}`);
         filledPoints.push(existing ?? { date, cost: 0, project });
       }
     }
@@ -157,10 +166,13 @@ export function useCostHistory(range: DateRange): UseCostHistoryResult {
   }, [workspaces, range]);
 
   useEffect(() => {
+    // Gate polling on connection status — no point fetching when disconnected
+    if (connection.status !== 'connected') return;
+
     fetchMetrics();
     const interval = setInterval(fetchMetrics, 60_000);
     return () => clearInterval(interval);
-  }, [fetchMetrics]);
+  }, [fetchMetrics, connection]);
 
   return { data, totalCost, loading };
 }

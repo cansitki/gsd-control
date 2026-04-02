@@ -194,7 +194,6 @@ function parseStateMd(state: string): Partial<GSDStatus> {
 
 export function useSSH() {
   const setConnectionStatus = useAppStore((s) => s.setConnectionStatus);
-  const workspaces = useAppStore((s) => s.workspaces);
   const setSession = useAppStore((s) => s.setSession);
   const setLastPollTime = useAppStore((s) => s.setLastPollTime);
   const setWorkspaceHealth = useAppStore((s) => s.setWorkspaceHealth);
@@ -310,103 +309,108 @@ export function useSSH() {
   connectFnRef.current = connect;
 
   const fetchGSDData = useCallback(async () => {
-    for (const ws of workspaces) {
-      try {
-        // Run the Python script on the workspace
-        const raw = await invoke<string>("exec_in_workspace", {
-          workspace: ws.coderName,
-          command: `python3 -c '${GSD_FETCH_SCRIPT.replace(/'/g, "'\"'\"'")}'`,
-        });
+    // Read workspaces from store directly to avoid stale closure
+    const workspaces = useAppStore.getState().workspaces;
 
-        if (!raw || !raw.trim()) continue;
-
-        let projects: RemoteProjectData[];
+    await Promise.allSettled(
+      workspaces.map(async (ws) => {
         try {
-          projects = JSON.parse(raw.trim());
-        } catch {
-          console.warn(`Failed to parse GSD data from ${ws.coderName}:`, raw.substring(0, 200));
-          continue;
-        }
+          // Run the Python script on the workspace
+          const raw = await invoke<string>("exec_in_workspace", {
+            workspace: ws.coderName,
+            command: `python3 -c '${GSD_FETCH_SCRIPT.replace(/'/g, "'\"'\"'")}'`,
+          });
 
-        // Match remote projects to configured projects
-        for (const proj of ws.projects) {
-          const remote = projects.find(
-            (p) => p.path === proj.path || p.name === proj.path || p.path.endsWith(proj.path)
-          );
+          if (!raw || !raw.trim()) return;
 
-          const sessionId = `${ws.coderName}:${proj.path}`;
-          const baseStatus = emptyStatus();
+          let projects: RemoteProjectData[];
+          try {
+            projects = JSON.parse(raw.trim());
+          } catch {
+            console.warn(`Failed to parse GSD data from ${ws.coderName}:`, raw.substring(0, 200));
+            return;
+          }
 
-          if (remote) {
-            const stateInfo = remote.state ? parseStateMd(remote.state) : {};
-            const hasSessions = remote.tmuxSessions.length > 0;
-            const details = remote.sessionDetails || [];
+          // Match remote projects to configured projects
+          for (const proj of ws.projects) {
+            const remote = projects.find(
+              (p) => p.path === proj.path || p.name === proj.path || p.path.endsWith(proj.path)
+            );
 
-            // Determine actual status from session activity
-            const activeSession = details.find((s) => s.idle < 60);
-            const isRunning = hasSessions;
-            const isActive = !!activeSession;
+            const sessionId = `${ws.coderName}:${proj.path}`;
+            const baseStatus = emptyStatus();
 
-            let phase = stateInfo.phase || null;
-            if (hasSessions && !phase) {
-              phase = isActive ? "running" : "idle";
+            if (remote) {
+              const stateInfo = remote.state ? parseStateMd(remote.state) : {};
+              const hasSessions = remote.tmuxSessions.length > 0;
+              const details = remote.sessionDetails || [];
+
+              // Determine actual status from session activity
+              const activeSession = details.find((s) => s.idle < 60);
+              const isRunning = hasSessions;
+              const isActive = !!activeSession;
+
+              let phase = stateInfo.phase || null;
+              if (hasSessions && !phase) {
+                phase = isActive ? "running" : "idle";
+              }
+
+              const status: GSDStatus = {
+                ...baseStatus,
+                ...stateInfo,
+                cost: remote.totalCost,
+                cacheHitRate: remote.lastMilestoneCacheHit ?? null,
+                gitBranch: remote.gitBranch || null,
+                autoMode: isActive,
+                phase,
+              };
+
+              if (remote.totalTokens && remote.totalTokens.total > 0) {
+                const t = remote.totalTokens;
+                const readM = (t.cacheRead + t.input) / 1e6;
+                const writeK = t.output / 1e3;
+                status.tokensRead = `${readM.toFixed(1)}M`;
+                status.tokensWrite = `${writeK.toFixed(0)}K`;
+              }
+
+              const tmuxSessions: TmuxSessionInfo[] = details.map((d) => ({
+                name: d.name,
+                idle: d.idle,
+                attached: false,
+              }));
+
+              setSession({
+                id: sessionId,
+                workspace: ws.displayName,
+                project: proj.path,
+                projectPath: proj.path,
+                displayName: proj.displayName,
+                status,
+                isRunning,
+                lastUpdated: Date.now(),
+                logs: [],
+                tmuxSessions,
+                terminalPreview: remote.terminalPreview || [],
+              });
+            } else {
+              setSession(
+                createEmptySession(ws.coderName, proj.path, proj.path, proj.displayName)
+              );
             }
+          }
 
-            const status: GSDStatus = {
-              ...baseStatus,
-              ...stateInfo,
-              cost: remote.totalCost,
-              cacheHitRate: remote.lastMilestoneCacheHit ?? null,
-              gitBranch: remote.gitBranch || null,
-              autoMode: isActive,
-              phase,
-            };
-
-            if (remote.totalTokens && remote.totalTokens.total > 0) {
-              const t = remote.totalTokens;
-              const readM = (t.cacheRead + t.input) / 1e6;
-              const writeK = t.output / 1e3;
-              status.tokensRead = `${readM.toFixed(1)}M`;
-              status.tokensWrite = `${writeK.toFixed(0)}K`;
-            }
-
-            const tmuxSessions: TmuxSessionInfo[] = details.map((d) => ({
-              name: d.name,
-              idle: d.idle,
-              attached: false,
-            }));
-
-            setSession({
-              id: sessionId,
-              workspace: ws.displayName,
-              project: proj.path,
-              projectPath: proj.path,
-              displayName: proj.displayName,
-              status,
-              isRunning,
-              lastUpdated: Date.now(),
-              logs: [],
-              tmuxSessions,
-              terminalPreview: remote.terminalPreview || [],
-            });
-          } else {
+          setWorkspaceHealth(ws.coderName, 'ok');
+        } catch (e) {
+          console.error(`Failed to fetch GSD data from ${ws.coderName}:`, e);
+          setWorkspaceHealth(ws.coderName, 'error');
+          for (const proj of ws.projects) {
             setSession(
               createEmptySession(ws.coderName, proj.path, proj.path, proj.displayName)
             );
           }
         }
-
-        setWorkspaceHealth(ws.coderName, 'ok');
-      } catch (e) {
-        console.error(`Failed to fetch GSD data from ${ws.coderName}:`, e);
-        setWorkspaceHealth(ws.coderName, 'error');
-        for (const proj of ws.projects) {
-          setSession(
-            createEmptySession(ws.coderName, proj.path, proj.path, proj.displayName)
-          );
-        }
-      }
-    }
+      })
+    );
 
     setLastPollTime(Date.now());
   }, [setSession, setWorkspaceHealth, setLastPollTime]);
