@@ -103,6 +103,8 @@ export interface DateRange {
   end?: string;   // YYYY-MM-DD
 }
 
+export type DebugLevel = "off" | "normal" | "extreme";
+
 export type ViewMode = "dashboard" | "terminal" | "logs" | "settings";
 
 export interface GSDEvent {

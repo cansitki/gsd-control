@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useAppStore } from "../stores/appStore";
 
 const origConsole = {
@@ -8,78 +8,107 @@ const origConsole = {
 };
 
 /**
- * Global debug logger — always-on. Intercepts console.log/warn/error and
- * captures uncaught errors. Subscribes to connection status changes.
+ * Global debug logger — gated by debugLevel.
+ *
+ * Off:     uncaught error + unhandled rejection handlers only.
+ * Normal:  app state snapshot on mount, connection status subscription,
+ *          uncaught error + unhandled rejection handlers. No console hijacking.
+ * Extreme: everything in normal, PLUS console.log/warn/error hijacking,
+ *          PLUS Zustand state mutation tracking (diffed keys).
+ *
  * Runs from AppShell.
  */
 export function useDebugLogger() {
-  const addDebugLog = useAppStore((s) => s.addDebugLog);
-  const addRef = useRef(addDebugLog);
-  addRef.current = addDebugLog;
+  const debugLevel = useAppStore((s) => s.debugLevel);
 
   useEffect(() => {
+    const addLog = useAppStore.getState().addDebugLog;
     const ts = () => new Date().toISOString().slice(11, 23);
+    const cleanups: (() => void)[] = [];
 
-    // Log app state snapshot on mount
+    // --- Always: uncaught error + rejection handlers ---
+    const onError = (e: ErrorEvent) => {
+      addLog(`[${ts()}] UNCAUGHT: ${e.message} at ${e.filename}:${e.lineno}`);
+    };
+    const onRejection = (e: PromiseRejectionEvent) => {
+      addLog(`[${ts()}] REJECTION: ${e.reason}`);
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    cleanups.push(() => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    });
+
+    if (debugLevel === "off") {
+      return () => cleanups.forEach((fn) => fn());
+    }
+
+    // --- Normal + Extreme: app state snapshot ---
     const state = useAppStore.getState();
-    addRef.current(`[${ts()}] DEBUG ENABLED`);
-    addRef.current(`[${ts()}] Version: ${state.config ? "ok" : "missing"}`);
-    addRef.current(`[${ts()}] Connection: ${state.connection.status}`);
-    addRef.current(`[${ts()}] Profiles: ${state.config.sshProfiles?.length ?? 0}`);
-    addRef.current(`[${ts()}] Workspaces: ${state.workspaces.map((w) => w.coderName).join(", ") || "none"}`);
-    addRef.current(`[${ts()}] Sessions: ${Object.keys(state.sessions).length}`);
-    addRef.current(`[${ts()}] Tabs: ${state.terminalTabs.length}`);
-    addRef.current(`[${ts()}] Hydrated: ${state._hasHydrated}`);
+    addLog(`[${ts()}] DEBUG ENABLED (${debugLevel})`);
+    addLog(`[${ts()}] Connection: ${state.connection.status}`);
+    addLog(`[${ts()}] Profiles: ${state.config.sshProfiles?.length ?? 0}`);
+    addLog(
+      `[${ts()}] Workspaces: ${state.workspaces.map((w) => w.coderName).join(", ") || "none"}`
+    );
+    addLog(`[${ts()}] Sessions: ${Object.keys(state.sessions).length}`);
+    addLog(`[${ts()}] Tabs: ${state.terminalTabs.length}`);
 
-    // Subscribe to connection status changes
+    // --- Normal + Extreme: connection status subscription ---
     let prevStatus = state.connection.status;
     let prevError = state.connection.error;
-    const unsubscribe = useAppStore.subscribe((s) => {
+    const unsubConn = useAppStore.subscribe((s) => {
       const { status, error } = s.connection;
       if (status !== prevStatus) {
         const errStr = error ? ` (${error})` : "";
-        addRef.current(`[${ts()}] CONNECTION: ${prevStatus} → ${status}${errStr}`);
+        addLog(`[${ts()}] CONNECTION: ${prevStatus} → ${status}${errStr}`);
         prevStatus = status;
         prevError = error;
       } else if (error !== prevError) {
-        addRef.current(`[${ts()}] CONNECTION ERROR: ${error}`);
+        addLog(`[${ts()}] CONNECTION ERROR: ${error}`);
         prevError = error;
       }
     });
+    cleanups.push(unsubConn);
 
-    // Override console
-    console.log = (...args: unknown[]) => {
-      addRef.current(`[${ts()}] ${args.map(String).join(" ")}`);
-      origConsole.log(...args);
-    };
-    console.warn = (...args: unknown[]) => {
-      addRef.current(`[${ts()}] WARN: ${args.map(String).join(" ")}`);
-      origConsole.warn(...args);
-    };
-    console.error = (...args: unknown[]) => {
-      addRef.current(`[${ts()}] ERROR: ${args.map(String).join(" ")}`);
-      origConsole.error(...args);
-    };
+    if (debugLevel === "extreme") {
+      // --- Extreme: console hijacking ---
+      console.log = (...args: unknown[]) => {
+        addLog(`[${ts()}] ${args.map(String).join(" ")}`);
+        origConsole.log(...args);
+      };
+      console.warn = (...args: unknown[]) => {
+        addLog(`[${ts()}] WARN: ${args.map(String).join(" ")}`);
+        origConsole.warn(...args);
+      };
+      console.error = (...args: unknown[]) => {
+        addLog(`[${ts()}] ERROR: ${args.map(String).join(" ")}`);
+        origConsole.error(...args);
+      };
+      cleanups.push(() => {
+        console.log = origConsole.log;
+        console.warn = origConsole.warn;
+        console.error = origConsole.error;
+      });
 
-    // Uncaught errors
-    const onError = (e: ErrorEvent) => {
-      addRef.current(`[${ts()}] UNCAUGHT: ${e.message} at ${e.filename}:${e.lineno}`);
-    };
-    window.addEventListener("error", onError);
+      // --- Extreme: Zustand state mutation tracking ---
+      let prevState = useAppStore.getState();
+      const unsubState = useAppStore.subscribe((next) => {
+        const changedKeys: string[] = [];
+        for (const key of Object.keys(next) as (keyof typeof next)[]) {
+          if (next[key] !== prevState[key]) {
+            changedKeys.push(key);
+          }
+        }
+        if (changedKeys.length > 0) {
+          addLog(`[${ts()}] [STATE] changed: ${changedKeys.join(", ")}`);
+        }
+        prevState = next;
+      });
+      cleanups.push(unsubState);
+    }
 
-    // Unhandled promise rejections
-    const onRejection = (e: PromiseRejectionEvent) => {
-      addRef.current(`[${ts()}] REJECTION: ${e.reason}`);
-    };
-    window.addEventListener("unhandledrejection", onRejection);
-
-    return () => {
-      unsubscribe();
-      console.log = origConsole.log;
-      console.warn = origConsole.warn;
-      console.error = origConsole.error;
-      window.removeEventListener("error", onError);
-      window.removeEventListener("unhandledrejection", onRejection);
-    };
-  }, []);
+    return () => cleanups.forEach((fn) => fn());
+  }, [debugLevel]);
 }

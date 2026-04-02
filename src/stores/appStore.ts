@@ -9,6 +9,7 @@ import type {
   GSDEvent,
   WorkspaceConfig,
   ProjectConfig,
+  DebugLevel,
 } from "../lib/types";
 import { emptyStatus } from "../lib/logParser";
 
@@ -61,7 +62,9 @@ interface AppState {
   config: AppConfig;
   updateConfig: (updates: Partial<AppConfig>) => void;
 
-  // Debug — always on
+  // Debug
+  debugLevel: DebugLevel;
+  setDebugLevel: (level: DebugLevel) => void;
   debugLogs: string[];
   addDebugLog: (log: string) => void;
   clearDebugLogs: () => void;
@@ -213,7 +216,9 @@ export const useAppStore = create<AppState>()(persist((set) => ({
       config: { ...state.config, ...updates },
     })),
 
-  // Debug — always on, rolling log buffer
+  // Debug
+  debugLevel: "normal",
+  setDebugLevel: (level) => set({ debugLevel: level }),
   debugLogs: [],
   addDebugLog: (log) =>
     set((state) => ({
@@ -230,11 +235,15 @@ export const useAppStore = create<AppState>()(persist((set) => ({
       workspaceHealth: { ...state.workspaceHealth, [workspace]: status },
     })),
 }), {
-  name: "gsd-control-v2",
-  version: 2,
+  name: "gsd-control-v3",
+  version: 3,
   storage: createJSONStorage(() => localStorage),
   migrate: (persistedState: unknown, _version: number) => {
-    return persistedState as Partial<AppState>;
+    const state = persistedState as Partial<AppState> & Record<string, unknown>;
+    if (_version < 3) {
+      state.debugLevel = "normal";
+    }
+    return state as Partial<AppState>;
   },
   onRehydrateStorage: () => (state) => {
     state?._setHasHydrated(true);
@@ -255,6 +264,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
     currentView: state.currentView,
     selectedProject: state.selectedProject,
     terminalLayout: state.terminalLayout,
+    debugLevel: state.debugLevel,
   }),
 }));
 
