@@ -92,13 +92,6 @@ function Dashboard() {
     }
   }, [customStart, customEnd]);
 
-  const sessionList = Object.values(sessions);
-  const activeSessions = sessionList.filter((s) => s.isRunning);
-  const totalCost = sessionList.reduce(
-    (sum, s) => sum + (s.status.cost ?? 0),
-    0
-  );
-
   const parseTokenStr = (s: string | null): number => {
     if (!s) return 0;
     const m = s.match(/([\d.]+)([MK])/);
@@ -106,13 +99,19 @@ function Dashboard() {
     return parseFloat(m[1]) * (m[2] === "M" ? 1e6 : 1e3);
   };
 
-  const totalTokensRead = sessionList.reduce(
-    (sum, s) => sum + parseTokenStr(s.status.tokensRead),
-    0
+  const sessionList = useMemo(() => Object.values(sessions), [sessions]);
+  const activeSessions = useMemo(() => sessionList.filter((s) => s.isRunning), [sessionList]);
+  const totalCost = useMemo(
+    () => sessionList.reduce((sum, s) => sum + (s.status.cost ?? 0), 0),
+    [sessionList]
   );
-  const totalTokensWrite = sessionList.reduce(
-    (sum, s) => sum + parseTokenStr(s.status.tokensWrite),
-    0
+  const totalTokensRead = useMemo(
+    () => sessionList.reduce((sum, s) => sum + parseTokenStr(s.status.tokensRead), 0),
+    [sessionList]
+  );
+  const totalTokensWrite = useMemo(
+    () => sessionList.reduce((sum, s) => sum + parseTokenStr(s.status.tokensWrite), 0),
+    [sessionList]
   );
 
   const formatTokens = (n: number): string => {
@@ -132,7 +131,7 @@ function Dashboard() {
   }, [workspaceHealth, workspaces]);
 
   const rangeLabel = formatRangeLabel(dateRange);
-  const recentEvents = events.slice(0, 10);
+  const recentEvents = useMemo(() => events.slice(0, 10), [events]);
 
   return (
     <div className="h-full overflow-y-auto p-6">

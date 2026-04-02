@@ -1,13 +1,17 @@
+import { useMemo } from "react";
 import { useAppStore } from "../stores/appStore";
 
 function StatusBar() {
   const connection = useAppStore((s) => s.connection);
   const sessions = useAppStore((s) => s.sessions);
 
-  const activeSessions = Object.values(sessions).filter((s) => s.isRunning);
-  const totalCost = Object.values(sessions).reduce(
-    (sum, s) => sum + (s.status.cost ?? 0),
-    0
+  const activeSessions = useMemo(
+    () => Object.values(sessions).filter((s) => s.isRunning),
+    [sessions]
+  );
+  const totalCost = useMemo(
+    () => Object.values(sessions).reduce((sum, s) => sum + (s.status.cost ?? 0), 0),
+    [sessions]
   );
 
   return (

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { debugInvoke as invoke } from "../lib/debugInvoke";
 import type { GSDSession, TerminalTab } from "../lib/types";
 import { useAppStore } from "../stores/appStore";
@@ -25,6 +25,14 @@ function SessionCard({ session }: Props) {
     setError(msg);
     setTimeout(() => setError(null), 5000);
   };
+
+  const sortedTmux = useMemo(
+    () =>
+      session.tmuxSessions
+        ? [...session.tmuxSessions].sort((a, b) => a.idle - b.idle)
+        : [],
+    [session.tmuxSessions]
+  );
 
   /** Click the card body → open a terminal for this project */
   const handleCardClick = () => {
@@ -99,7 +107,7 @@ function SessionCard({ session }: Props) {
       );
 
       if (matching.length === 0) {
-        console.warn("No tmux sessions found for project:", project);
+        showError("No tmux sessions found for this project");
         return;
       }
 
@@ -154,18 +162,14 @@ function SessionCard({ session }: Props) {
       </div>
 
       {/* Tmux sessions */}
-      {session.tmuxSessions && session.tmuxSessions.length > 0 && (
+      {sortedTmux.length > 0 && (
         <div className="mb-2 flex items-center gap-2 text-xs">
           <span className="text-accent-blue font-medium">
-            {session.tmuxSessions.length}{" "}
-            {session.tmuxSessions.length === 1 ? "session" : "sessions"}
+            {sortedTmux.length}{" "}
+            {sortedTmux.length === 1 ? "session" : "sessions"}
           </span>
           {(() => {
-            // Show state of the most active (lowest idle) session
-            const sorted = [...session.tmuxSessions].sort(
-              (a, b) => a.idle - b.idle
-            );
-            const top = sorted[0];
+            const top = sortedTmux[0];
             if (top.idle < 60) {
               return (
                 <span className="text-accent-blue">active</span>
