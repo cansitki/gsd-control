@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo, useRef } from "react";
 import { debugInvoke as invoke } from "../lib/debugInvoke";
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -13,10 +13,6 @@ function Settings() {
   const updateConfig = useAppStore((s) => s.updateConfig);
   const setConnectionStatus = useAppStore((s) => s.setConnectionStatus);
   const workspaces = useAppStore((s) => s.workspaces);
-  const debugLogs = useAppStore((s) => s.debugLogs);
-  const clearDebugLogs = useAppStore((s) => s.clearDebugLogs);
-  const debugLevel = useAppStore((s) => s.debugLevel);
-  const setDebugLevel = useAppStore((s) => s.setDebugLevel);
   const [deployStatus, setDeployStatus] = useState("");
   const [testStatus, setTestStatus] = useState("");
   const [updateStatus, setUpdateStatus] = useState("");
@@ -517,78 +513,98 @@ function Settings() {
         </div>
       </section>
 
-      {/* Debug Logs */}
-      <section className="mb-8">
-        <h3 className="text-xs font-semibold text-accent-orange uppercase tracking-wider mb-3">
-          Debug Logs
-        </h3>
-        <div className="space-y-2">
-          {/* Debug Level Toggle */}
-          <div className="flex items-center gap-1">
-            {(["off", "normal", "extreme"] as DebugLevel[]).map((level) => (
-              <button
-                key={level}
-                onClick={() => setDebugLevel(level)}
-                className={`text-xs px-3 py-1.5 rounded border transition-colors capitalize ${
-                  debugLevel === level
-                    ? "bg-accent-blue/20 text-accent-blue border-accent-blue/50"
-                    : "border-base-border text-base-muted hover:text-base-text"
-                }`}
-              >
-                {level}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(debugLogs.join("\n")).catch(() => {});
-              }}
-              className="text-xs px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
-            >
-              📋 Copy Logs
-            </button>
-            <button
-              onClick={clearDebugLogs}
-              className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
-            >
-              Clear
-            </button>
-            <span className="text-xs text-base-muted">{debugLogs.length} entries</span>
-          </div>
-          <div className="bg-base-bg border border-base-border rounded p-2 max-h-[300px] overflow-y-auto font-mono">
-            {debugLogs.length === 0 ? (
-              <p className="text-xs text-base-muted">No logs yet — logs are captured automatically.</p>
-            ) : (
-              debugLogs.slice(-200).map((log, i) => (
-                <div
-                  key={i}
-                  className={`text-xs py-0.5 ${
-                    log.includes("ERROR") || log.includes("UNCAUGHT") || log.includes("REJECTION")
-                      ? "text-accent-red"
-                      : log.includes("WARN")
-                        ? "text-accent-amber"
-                        : "text-base-muted"
-                  }`}
-                >
-                  {log}
-                </div>
-              ))
-            )}
-          </div>
-          <p className="text-xs text-base-muted/60">
-            Last 200 of {debugLogs.length}. Max 5000 entries (~200 min).{" "}
-            {debugLevel === "off"
-              ? "Logging off — only uncaught errors captured."
-              : debugLevel === "normal"
-                ? "SSH lifecycle, connections, and errors."
-                : "Full tracing — invoke calls, state mutations, console output."}
-          </p>
-        </div>
-      </section>
+      {/* Debug Logs — isolated component to avoid re-rendering entire Settings on every log entry */}
+      <DebugLogsSection />
     </div>
   );
 }
+
+// ── DebugLogsSection — isolated to avoid re-rendering Settings on every log ──
+
+const DebugLogsSection = memo(function DebugLogsSection() {
+  const debugLogs = useAppStore((s) => s.debugLogs);
+  const clearDebugLogs = useAppStore((s) => s.clearDebugLogs);
+  const debugLevel = useAppStore((s) => s.debugLevel);
+  const setDebugLevel = useAppStore((s) => s.setDebugLevel);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when new logs arrive
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [debugLogs.length]);
+
+  return (
+    <section className="mb-8">
+      <h3 className="text-xs font-semibold text-accent-orange uppercase tracking-wider mb-3">
+        Debug Logs
+      </h3>
+      <div className="space-y-2">
+        <div className="flex items-center gap-1">
+          {(["off", "normal", "extreme"] as DebugLevel[]).map((level) => (
+            <button
+              key={level}
+              onClick={() => setDebugLevel(level)}
+              className={`text-xs px-3 py-1.5 rounded border transition-colors capitalize ${
+                debugLevel === level
+                  ? "bg-accent-blue/20 text-accent-blue border-accent-blue/50"
+                  : "border-base-border text-base-muted hover:text-base-text"
+              }`}
+            >
+              {level}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(debugLogs.join("\n")).catch(() => {});
+            }}
+            className="text-xs px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
+          >
+            📋 Copy Logs
+          </button>
+          <button
+            onClick={clearDebugLogs}
+            className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
+          >
+            Clear
+          </button>
+          <span className="text-xs text-base-muted">{debugLogs.length} entries</span>
+        </div>
+        <div ref={scrollRef} className="bg-base-bg border border-base-border rounded p-2 max-h-[300px] overflow-y-auto font-mono">
+          {debugLogs.length === 0 ? (
+            <p className="text-xs text-base-muted">No logs yet — logs are captured automatically.</p>
+          ) : (
+            debugLogs.slice(-200).map((log, i) => (
+              <div
+                key={i}
+                className={`text-xs py-0.5 ${
+                  log.includes("ERROR") || log.includes("UNCAUGHT") || log.includes("REJECTION")
+                    ? "text-accent-red"
+                    : log.includes("WARN")
+                      ? "text-accent-amber"
+                      : "text-base-muted"
+                }`}
+              >
+                {log}
+              </div>
+            ))
+          )}
+        </div>
+        <p className="text-xs text-base-muted/60">
+          Last 200 of {debugLogs.length}. Max 5000 entries (~200 min).{" "}
+          {debugLevel === "off"
+            ? "Logging off — only uncaught errors captured."
+            : debugLevel === "normal"
+              ? "SSH lifecycle, connections, and errors."
+              : "Full tracing — invoke calls, state mutations, console output."}
+        </p>
+      </div>
+    </section>
+  );
+});
 
 // ── ProfileEditor ─────────────────────────────────────────────────────────
 
