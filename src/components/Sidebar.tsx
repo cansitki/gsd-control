@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { debugInvoke as invoke } from "../lib/debugInvoke";
 import { useAppStore } from "../stores/appStore";
 import type { ViewMode, TerminalTab } from "../lib/types";
 import { sanitizeShellArg } from "../lib/shell";

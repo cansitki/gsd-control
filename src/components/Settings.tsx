@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { debugInvoke as invoke } from "../lib/debugInvoke";
 import { getVersion } from "@tauri-apps/api/app";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { useAppStore } from "../stores/appStore";
 import { WATCHER_SCRIPT } from "../lib/watcherScript";
 import { escapeShellSingleQuote } from "../lib/shell";
-import type { SSHProfile, WorkspaceConfig } from "../lib/types";
+import type { SSHProfile, WorkspaceConfig, DebugLevel } from "../lib/types";
 
 function Settings() {
   const config = useAppStore((s) => s.config);
@@ -15,6 +15,8 @@ function Settings() {
   const workspaces = useAppStore((s) => s.workspaces);
   const debugLogs = useAppStore((s) => s.debugLogs);
   const clearDebugLogs = useAppStore((s) => s.clearDebugLogs);
+  const debugLevel = useAppStore((s) => s.debugLevel);
+  const setDebugLevel = useAppStore((s) => s.setDebugLevel);
   const [deployStatus, setDeployStatus] = useState("");
   const [testStatus, setTestStatus] = useState("");
   const [updateStatus, setUpdateStatus] = useState("");
@@ -521,6 +523,22 @@ function Settings() {
           Debug Logs
         </h3>
         <div className="space-y-2">
+          {/* Debug Level Toggle */}
+          <div className="flex items-center gap-1">
+            {(["off", "normal", "extreme"] as DebugLevel[]).map((level) => (
+              <button
+                key={level}
+                onClick={() => setDebugLevel(level)}
+                className={`text-xs px-3 py-1.5 rounded border transition-colors capitalize ${
+                  debugLevel === level
+                    ? "bg-accent-blue/20 text-accent-blue border-accent-blue/50"
+                    : "border-base-border text-base-muted hover:text-base-text"
+                }`}
+              >
+                {level}
+              </button>
+            ))}
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
@@ -559,7 +577,12 @@ function Settings() {
             )}
           </div>
           <p className="text-xs text-base-muted/60">
-            Last 200 of {debugLogs.length}. Max 5000 entries (~200 min). Always running.
+            Last 200 of {debugLogs.length}. Max 5000 entries (~200 min).{" "}
+            {debugLevel === "off"
+              ? "Logging off — only uncaught errors captured."
+              : debugLevel === "normal"
+                ? "SSH lifecycle, connections, and errors."
+                : "Full tracing — invoke calls, state mutations, console output."}
           </p>
         </div>
       </section>

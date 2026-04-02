@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { debugInvoke as invoke } from "../lib/debugInvoke";
 import { useAppStore, createEmptySession } from "../stores/appStore";
 import type { GSDStatus, TmuxSessionInfo } from "../lib/types";
 import { emptyStatus } from "../lib/logParser";
