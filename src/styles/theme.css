@@ -41,10 +41,9 @@ html, body, #root {
   color: #fff;
 }
 
-/* Force xterm container to fill its parent — !important needed because
+/* Force xterm container to fill parent height — !important needed because
    @xterm/xterm/css/xterm.css may load after this file in Vite's bundle.
-   Only the outer .xterm div needs sizing — inner elements are managed by FitAddon. */
+   Width is managed by FitAddon — do NOT override it or column count breaks. */
 .xterm {
   height: 100% !important;
-  width: 100% !important;
 }

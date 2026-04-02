@@ -77,16 +77,33 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
     return () => cancelAnimationFrame(raf);
   }, [visible, debouncedFit]);
 
-  // Copy selection to clipboard
-  const handleCopy = useCallback(() => {
+  // Copy selection to clipboard — tries xterm selection first, then tmux buffer
+  const handleCopy = useCallback(async () => {
     const term = terminalRef.current;
-    if (!term) return;
+    if (!term) { setContextMenu(null); return; }
+    
+    // Try xterm's local selection first (from Shift+drag)
     const sel = term.getSelection();
     if (sel) {
       navigator.clipboard.writeText(sel).catch(() => {});
+      setContextMenu(null);
+      return;
+    }
+    
+    // Fall back to tmux's paste buffer (from normal drag with mouse mode on)
+    try {
+      const buf = await invoke<string>("exec_in_workspace", {
+        workspace,
+        command: `tmux show-buffer 2>/dev/null || true`,
+      });
+      if (buf?.trim()) {
+        navigator.clipboard.writeText(buf.trim()).catch(() => {});
+      }
+    } catch {
+      // ignore
     }
     setContextMenu(null);
-  }, []);
+  }, [workspace, tabId, project, tmuxSessionProp]);
 
   // Paste from clipboard into terminal
   const handlePaste = useCallback(() => {
@@ -168,23 +185,30 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Fit helper — called after layout settles and after font loads
+    // Fit helper — retries if cell dimensions aren't ready yet
     const doInitialFit = () => {
       const el = containerRef.current;
-      if (el && el.offsetWidth > 0 && el.offsetHeight > 0) {
-        fitAddon.fit();
-        lastColsRef.current = term.cols;
-        lastRowsRef.current = term.rows;
-      }
+      if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) return false;
+      const dims = fitAddon.proposeDimensions();
+      if (!dims) return false; // cell size not measured yet
+      fitAddon.fit();
+      lastColsRef.current = term.cols;
+      lastRowsRef.current = term.rows;
+      return true;
     };
 
-    // Initial fit — wait for fonts then fit. Two passes for layout settling.
+    // Retry fit until it succeeds — cell dimensions may not be ready immediately
+    const retryFit = (attempts: number, delay: number) => {
+      if (!mountedRef.current || attempts <= 0) return;
+      if (doInitialFit()) return; // success
+      setTimeout(() => retryFit(attempts - 1, delay * 1.5), delay);
+    };
+
+    // Initial fit — wait for fonts then fit with retries
     const fontReady = document.fonts?.ready ?? Promise.resolve();
     fontReady.then(() => {
       requestAnimationFrame(() => {
-        doInitialFit();
-        // Second pass after CSS/layout fully settles
-        setTimeout(doInitialFit, 200);
+        retryFit(10, 50); // up to 10 attempts, starting at 50ms intervals
       });
     });
 
@@ -196,13 +220,12 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      const hasSelection = !!term.getSelection();
-      setContextMenu({ x: e.clientX, y: e.clientY, hasSelection });
+      setContextMenu({ x: e.clientX, y: e.clientY, hasSelection: true });
     };
     containerRef.current.addEventListener("contextmenu", handleContextMenu);
     const containerEl = containerRef.current;
 
-    // Cmd+C / Ctrl+C: copy if there's a selection, otherwise send interrupt
+    // Cmd+C / Ctrl+C: copy if there's a selection, otherwise try tmux buffer, otherwise send interrupt
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "c") {
         const sel = term.getSelection();
@@ -211,7 +234,20 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
           navigator.clipboard.writeText(sel).catch(() => {});
           return;
         }
-        // No selection — let it pass through as Ctrl+C interrupt
+        // Try tmux paste buffer before falling through to Ctrl+C interrupt
+        if (e.metaKey) {
+          e.preventDefault();
+          invoke<string>("exec_in_workspace", {
+            workspace,
+            command: `tmux show-buffer 2>/dev/null || true`,
+          }).then((buf) => {
+            if (buf?.trim()) {
+              navigator.clipboard.writeText(buf.trim()).catch(() => {});
+            }
+          }).catch(() => {});
+          return;
+        }
+        // Ctrl+C with no selection — pass through as interrupt
       }
       // Cmd+V / Ctrl+Shift+V: paste
       if ((e.metaKey && e.key === "v") || (e.ctrlKey && e.shiftKey && e.key === "V")) {
@@ -281,11 +317,12 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
 
         updateTerminalTabRef.current(tabId, { tmuxSession: tmuxName });
 
-        // Disable tmux mouse mode — let xterm handle selection/copy natively.
-        // Tmux mouse mode steals mouse events, breaking text selection and copy.
+        // Enable tmux mouse mode for scroll wheel support.
+        // Selection: hold Shift while dragging to select in xterm (bypasses tmux).
+        // Copy/paste: use Cmd+C/Cmd+V or right-click context menu.
         await invoke("exec_in_workspace", {
           workspace,
-          command: `tmux set-option -t ${tmuxName} mouse off 2>/dev/null; true`,
+          command: `tmux set-option -t ${tmuxName} mouse on 2>/dev/null; true`,
         });
 
         term.writeln("");
@@ -305,7 +342,8 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
         // Clear any garbage escape sequences from tmux attach
         term.reset();
 
-        // Fit after DOM settles — two passes to catch layout shifts
+        // Fit after DOM settles — multiple passes at increasing intervals
+        // to catch flex layout resolution, font swap, and Tauri frame sizing.
         const doFit = () => {
           const el = containerRef.current;
           if (el && el.offsetWidth > 0 && el.offsetHeight > 0) {
@@ -322,8 +360,10 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
 
         requestAnimationFrame(() => {
           doFit();
-          // Second pass — catches late layout shifts from tab/view transitions
-          setTimeout(doFit, 250);
+          setTimeout(doFit, 100);
+          setTimeout(doFit, 300);
+          setTimeout(doFit, 800);
+          setTimeout(doFit, 2000);
         });
       } catch (e) {
         connectingRef.current = false;
