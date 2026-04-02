@@ -3,6 +3,7 @@ import { FitAddon, ITerminalDimensions } from "@xterm/addon-fit";
 import { SearchAddon, ISearchOptions } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { addDebugLog } from "./debugLogBuffer";
 import { listen } from "@tauri-apps/api/event";
 import "@xterm/xterm/css/xterm.css";
 
@@ -67,14 +68,9 @@ export class TermWrap {
   private disposed = false;
   private _fontLoadHandler: (() => void) | null = null;
 
-  /** Debug log ring buffer — last N fit/resize events */
-  public readonly debugLog: string[] = [];
-  private _debugMaxLines = 200;
-
   public _debug(msg: string): void {
     const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
-    this.debugLog.push(`${ts} ${msg}`);
-    if (this.debugLog.length > this._debugMaxLines) this.debugLog.shift();
+    addDebugLog(`[${ts}] [TERM] ${msg}`);
   }
 
   constructor(elem: HTMLElement, opts: TermWrapOptions = {}) {
