@@ -743,8 +743,10 @@ function AddWorkspaceInline({
 
     setTesting(true);
     setStatus("Testing connection...");
+    let reachable = false;
     try {
       await invoke("exec_in_workspace", { workspace: name, command: "echo ok" });
+      reachable = true;
       setStatus("");
     } catch {
       setStatus("Warning: could not reach workspace. Added anyway.");
@@ -757,8 +759,50 @@ function AddWorkspaceInline({
         { coderName: name, displayName: wsDisplay.trim() || name, projects: [] },
       ],
     });
+
+    // Auto-discover projects with .gsd directories on the workspace
+    if (reachable) {
+      setStatus("Discovering projects...");
+      try {
+        const output = await invoke<string>("exec_in_workspace", {
+          workspace: name,
+          command: "for d in ~/*/; do [ -d \"$d/.gsd\" ] && basename \"$d\"; done 2>/dev/null",
+        });
+        const projects = output
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l && !l.startsWith("."));
+
+        if (projects.length > 0) {
+          // Add all discovered projects
+          const currentStore = useAppStore.getState();
+          const ws = currentStore.workspaces.find((w) => w.coderName === name);
+          if (ws) {
+            const newProjects = projects
+              .filter((p) => !ws.projects.some((existing) => existing.path === p))
+              .map((p) => ({ path: p, displayName: p }));
+            if (newProjects.length > 0) {
+              useAppStore.setState({
+                workspaces: currentStore.workspaces.map((w) =>
+                  w.coderName === name
+                    ? { ...w, projects: [...w.projects, ...newProjects] }
+                    : w
+                ),
+              });
+            }
+          }
+          setStatus(`✓ Found ${projects.length} project${projects.length !== 1 ? "s" : ""}`);
+        } else {
+          setStatus("No GSD projects found — you can add them manually from the sidebar.");
+        }
+      } catch {
+        setStatus("Added workspace. Could not auto-discover projects.");
+      }
+    }
+
     setTesting(false);
-    onClose();
+    // Auto-close after a short delay so user sees the discovery result
+    setTimeout(() => onClose(), reachable ? 1500 : 500);
   };
 
   return (

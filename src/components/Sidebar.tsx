@@ -38,28 +38,24 @@ function AddProjectModal({
     }
 
     setCreating(true);
-    setStatus("Checking...");
+    setStatus("Adding...");
     try {
-      // Check if the folder already exists on the workspace
-      const checkResult = await invoke<string>("exec_in_workspace", {
-        workspace: workspace.coderName,
-        command: `test -d ~/${sanitizeShellArg(folder)} && echo exists || echo missing`,
-      });
-      const exists = checkResult.trim() === "exists";
+      // Add to store first, then check/create on remote
+      addProject(workspace.coderName, { path: folder, displayName: display });
 
-      if (!exists) {
-        setStatus("Creating folder...");
-        await invoke("create_project", {
+      // Try to create the folder if it doesn't exist (best-effort)
+      try {
+        await invoke("exec_in_workspace", {
           workspace: workspace.coderName,
-          projectPath: folder,
+          command: `test -d ~/${sanitizeShellArg(folder)} || mkdir -p ~/${sanitizeShellArg(folder)}`,
         });
+      } catch {
+        // Remote not reachable — project still added to sidebar
       }
 
-      addProject(workspace.coderName, { path: folder, displayName: display });
-      setStatus("");
       onClose();
     } catch (e) {
-      setStatus(`Failed: ${e}`);
+      setStatus(`Failed: ${String(e)}`);
       setCreating(false);
     }
   };
@@ -302,17 +298,18 @@ function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
 
     setTesting(true);
     setStatus("Testing connection...");
+    let reachable = false;
     try {
       const result = await invoke<{ connected: boolean; error: string | null }>(
         "test_workspace",
         { workspace: name }
       );
+      reachable = !!result.connected;
       if (!result.connected) {
-        // Add anyway but warn
-        setStatus("");
+        setStatus("Warning: could not reach workspace. Added anyway.");
       }
     } catch {
-      // Can't test — add anyway
+      setStatus("Warning: could not reach workspace. Added anyway.");
     }
 
     const store = useAppStore.getState();
@@ -323,8 +320,49 @@ function AddWorkspaceModal({ onClose }: { onClose: () => void }) {
       ],
     });
 
-    setTesting(false);
-    onClose();
+    // Auto-discover projects with .gsd directories
+    if (reachable) {
+      setStatus("Discovering projects...");
+      try {
+        const output = await invoke<string>("exec_in_workspace", {
+          workspace: name,
+          command: "for d in ~/*/; do [ -d \"$d/.gsd\" ] && basename \"$d\"; done 2>/dev/null",
+        });
+        const projects = output
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l && !l.startsWith("."));
+
+        if (projects.length > 0) {
+          const currentStore = useAppStore.getState();
+          const ws = currentStore.workspaces.find((w) => w.coderName === name);
+          if (ws) {
+            const newProjects = projects
+              .filter((p) => !ws.projects.some((existing) => existing.path === p))
+              .map((p) => ({ path: p, displayName: p }));
+            if (newProjects.length > 0) {
+              useAppStore.setState({
+                workspaces: currentStore.workspaces.map((w) =>
+                  w.coderName === name
+                    ? { ...w, projects: [...w.projects, ...newProjects] }
+                    : w
+                ),
+              });
+            }
+          }
+          setStatus(`✓ Found ${projects.length} project${projects.length !== 1 ? "s" : ""}`);
+        } else {
+          setStatus("Added. No GSD projects found — add them from the sidebar.");
+        }
+      } catch {
+        setStatus("Added workspace. Could not auto-discover projects.");
+      }
+      setTesting(false);
+      setTimeout(() => onClose(), 1500);
+    } else {
+      setTesting(false);
+      onClose();
+    }
   };
 
   return (
