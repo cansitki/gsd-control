@@ -10,8 +10,9 @@ type DatePreset = DateRange["preset"];
 
 const PRESETS: { key: DatePreset; label: string }[] = [
   { key: "today", label: "Today" },
-  { key: "week", label: "Week" },
-  { key: "month", label: "Month" },
+  { key: "week", label: "7 Days" },
+  { key: "month", label: "30 Days" },
+  { key: "all", label: "All Time" },
   { key: "custom", label: "Custom" },
 ];
 
@@ -20,9 +21,11 @@ function formatRangeLabel(range: DateRange): string {
     case "today":
       return "Today";
     case "week":
-      return "This Week";
+      return "Last 7 Days";
     case "month":
-      return "This Month";
+      return "Last 30 Days";
+    case "all":
+      return "All Time";
     case "custom": {
       if (range.start && range.end) {
         const fmtDate = (iso: string) => {
@@ -259,7 +262,7 @@ function Dashboard() {
 
         <CostChart
           data={costHistory.data}
-          totalCost={costHistory.totalCost}
+          stats={costHistory.stats}
           loading={costHistory.loading}
           rangeLabel={rangeLabel}
         />

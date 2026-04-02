@@ -98,7 +98,7 @@ export interface AppConfig {
 }
 
 export interface DateRange {
-  preset: 'today' | 'week' | 'month' | 'custom';
+  preset: 'today' | 'week' | 'month' | 'all' | 'custom';
   start?: string; // YYYY-MM-DD
   end?: string;   // YYYY-MM-DD
 }

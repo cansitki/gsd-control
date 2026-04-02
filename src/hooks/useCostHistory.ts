@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { debugInvoke as invoke } from "../lib/debugInvoke";
 import { useAppStore } from "../stores/appStore";
+import { fetchProjectCosts } from "../lib/costAggregator";
+import type { ProjectCostSummary } from "../lib/costAggregator";
 import type { DateRange } from "../lib/types";
 
 export type { DateRange } from "../lib/types";
@@ -11,35 +12,28 @@ export interface CostDataPoint {
   project: string;
 }
 
-interface MetricsUnit {
-  type: string;
-  id: string;
-  model: string;
-  startedAt: number;
-  finishedAt: number;
-  tokens: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheWrite: number;
-    total: number;
-  };
-  cost: number;
-  cacheHitRate: number;
-}
-
-interface MetricsJson {
-  units: MetricsUnit[];
+export interface CostStats {
+  totalCost: number;
+  dailyAverage: number;
+  totalMessages: number;
+  totalInput: number;
+  totalOutput: number;
+  totalCacheRead: number;
+  totalCacheWrite: number;
+  models: Record<string, number>;
+  activeDays: number;
+  firstDate: string;
+  lastDate: string;
+  projectBreakdown: { project: string; cost: number; messages: number }[];
 }
 
 interface UseCostHistoryResult {
   data: CostDataPoint[];
-  totalCost: number;
+  stats: CostStats;
   loading: boolean;
 }
 
-function formatDate(epochMs: number): string {
-  const d = new Date(epochMs);
+function formatDate(d: Date): string {
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -49,130 +43,191 @@ function formatDate(epochMs: number): string {
 function getDateRange(range: DateRange): string[] {
   const days: string[] = [];
   const now = new Date();
-  let count: number;
 
   switch (range.preset) {
-    case 'today':
-      count = 1;
-      break;
-    case 'week':
-      count = 7;
-      break;
-    case 'month':
-      count = 30;
-      break;
-    case 'custom': {
-      if (!range.start || !range.end) return [formatDate(now.getTime())];
-      const startDate = new Date(range.start + 'T00:00:00');
-      const endDate = new Date(range.end + 'T00:00:00');
+    case "today":
+      return [formatDate(now)];
+    case "week": {
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        days.push(formatDate(d));
+      }
+      return days;
+    }
+    case "month": {
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(now);
+        d.setDate(d.getDate() - i);
+        days.push(formatDate(d));
+      }
+      return days;
+    }
+    case "all":
+      return []; // empty means "use all available dates from data"
+    case "custom": {
+      if (!range.start || !range.end) return [formatDate(now)];
+      const startDate = new Date(range.start + "T00:00:00");
+      const endDate = new Date(range.end + "T00:00:00");
       const cursor = new Date(startDate);
       while (cursor <= endDate) {
-        days.push(formatDate(cursor.getTime()));
+        days.push(formatDate(cursor));
         cursor.setDate(cursor.getDate() + 1);
       }
-      return days.length > 0 ? days : [formatDate(now.getTime())];
+      return days.length > 0 ? days : [formatDate(now)];
     }
     default:
-      count = 14;
+      return [formatDate(now)];
+  }
+}
+
+function filterSummaryByRange(
+  summaries: ProjectCostSummary[],
+  range: DateRange
+): { points: CostDataPoint[]; stats: CostStats } {
+  const dateRange = getDateRange(range);
+  const isAllTime = range.preset === "all";
+
+  // Collect all daily data per project, filtered by date range
+  const allPoints: CostDataPoint[] = [];
+  let totalCost = 0;
+  let totalMessages = 0;
+  let totalInput = 0;
+  let totalOutput = 0;
+  let totalCacheRead = 0;
+  let totalCacheWrite = 0;
+  const models: Record<string, number> = {};
+  let firstDate = "";
+  let lastDate = "";
+  const projectCosts: Record<string, { cost: number; messages: number }> = {};
+  const activeDateSet = new Set<string>();
+
+  for (const summary of summaries) {
+    for (const day of summary.daily) {
+      const inRange = isAllTime || dateRange.includes(day.date);
+      if (!inRange) continue;
+
+      allPoints.push({ date: day.date, cost: day.cost, project: summary.project });
+      totalCost += day.cost;
+      totalMessages += day.messages;
+      totalInput += day.input;
+      totalOutput += day.output;
+      totalCacheRead += day.cacheRead;
+      totalCacheWrite += day.cacheWrite;
+      activeDateSet.add(day.date);
+
+      if (!firstDate || day.date < firstDate) firstDate = day.date;
+      if (!lastDate || day.date > lastDate) lastDate = day.date;
+
+      const pc = projectCosts[summary.project] ?? { cost: 0, messages: 0 };
+      pc.cost += day.cost;
+      pc.messages += day.messages;
+      projectCosts[summary.project] = pc;
+    }
+
+    // Accumulate model costs (these are already totals, so only count for matching range)
+    // For all-time, use the full model data; for filtered ranges, we approximate
+    if (isAllTime) {
+      for (const [model, cost] of Object.entries(summary.models)) {
+        models[model] = (models[model] ?? 0) + cost;
+      }
+    }
   }
 
-  for (let i = count - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    days.push(formatDate(d.getTime()));
+  // For non-all-time, derive model costs from the totals (we don't have per-day model breakdown)
+  if (!isAllTime) {
+    // Just note the models used — costs are approximate from daily sums
+    for (const summary of summaries) {
+      for (const model of Object.keys(summary.models)) {
+        if (!(model in models)) models[model] = 0;
+      }
+    }
   }
-  return days;
+
+  const activeDays = activeDateSet.size;
+  const dailyAverage = activeDays > 0 ? totalCost / activeDays : 0;
+
+  // Fill chart data — ensure every date/project combo exists for consistent stacking
+  const projects = [...new Set(allPoints.map((p) => p.project))];
+  const chartDates = isAllTime
+    ? [...activeDateSet].sort()
+    : dateRange;
+
+  const pointMap = new Map<string, CostDataPoint>();
+  for (const p of allPoints) {
+    pointMap.set(`${p.date}:${p.project}`, p);
+  }
+
+  const filledPoints: CostDataPoint[] = [];
+  for (const date of chartDates) {
+    for (const project of projects) {
+      const existing = pointMap.get(`${date}:${project}`);
+      filledPoints.push(existing ?? { date, cost: 0, project });
+    }
+  }
+
+  const projectBreakdown = Object.entries(projectCosts)
+    .map(([project, { cost, messages }]) => ({ project, cost, messages }))
+    .sort((a, b) => b.cost - a.cost);
+
+  return {
+    points: filledPoints,
+    stats: {
+      totalCost,
+      dailyAverage,
+      totalMessages,
+      totalInput,
+      totalOutput,
+      totalCacheRead,
+      totalCacheWrite,
+      models,
+      activeDays,
+      firstDate,
+      lastDate,
+      projectBreakdown,
+    },
+  };
 }
 
 export function useCostHistory(range: DateRange): UseCostHistoryResult {
   const workspaces = useAppStore((s) => s.workspaces);
   const connection = useAppStore((s) => s.connection);
-  const [data, setData] = useState<CostDataPoint[]>([]);
-  const [totalCost, setTotalCost] = useState(0);
+  const [summaries, setSummaries] = useState<ProjectCostSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchMetrics = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
-    const allPoints: CostDataPoint[] = [];
-    const dateRange = getDateRange(range);
-    const cutoffDate = dateRange[0];
 
-    // Flatten workspace×project pairs and fetch in parallel
     const pairs = workspaces.flatMap((ws) =>
       ws.projects.map((proj) => ({ ws, proj }))
     );
 
     const results = await Promise.allSettled(
-      pairs.map(async ({ ws, proj }) => {
-        const raw = await invoke<string>("exec_in_workspace", {
-          workspace: ws.coderName,
-          command: `cat /home/coder/${proj.path}/.gsd/metrics.json 2>/dev/null || echo '{\"units\":[]}'`,
-        });
-
-        let metrics: MetricsJson;
-        try {
-          metrics = JSON.parse(raw);
-        } catch {
-          return [];
-        }
-
-        if (!metrics.units || !Array.isArray(metrics.units)) return [];
-
-        const dailyBuckets: Record<string, number> = {};
-        for (const unit of metrics.units) {
-          if (typeof unit.cost !== "number" || typeof unit.startedAt !== "number") continue;
-          const date = formatDate(unit.startedAt);
-          if (date < cutoffDate) continue;
-          dailyBuckets[date] = (dailyBuckets[date] ?? 0) + unit.cost;
-        }
-
-        const points: CostDataPoint[] = [];
-        for (const date of dateRange) {
-          const cost = dailyBuckets[date] ?? 0;
-          if (cost > 0) {
-            points.push({ date, cost, project: proj.displayName });
-          }
-        }
-        return points;
-      })
+      pairs.map(({ ws, proj }) =>
+        fetchProjectCosts(ws.coderName, proj.path, proj.displayName)
+      )
     );
 
+    const fetched: ProjectCostSummary[] = [];
     for (const result of results) {
-      if (result.status === "fulfilled") {
-        allPoints.push(...result.value);
+      if (result.status === "fulfilled" && result.value) {
+        fetched.push(result.value);
       }
     }
 
-    // Ensure every date/project combo exists for consistent stacking
-    // Use Map for O(1) lookup instead of O(n²) .find()
-    const projects = [...new Set(allPoints.map((p) => p.project))];
-    const pointMap = new Map<string, CostDataPoint>();
-    for (const point of allPoints) {
-      pointMap.set(`${point.date}:${point.project}`, point);
-    }
-
-    const filledPoints: CostDataPoint[] = [];
-    for (const date of dateRange) {
-      for (const project of projects) {
-        const existing = pointMap.get(`${date}:${project}`);
-        filledPoints.push(existing ?? { date, cost: 0, project });
-      }
-    }
-
-    const total = filledPoints.reduce((sum, p) => sum + p.cost, 0);
-    setData(filledPoints);
-    setTotalCost(total);
+    setSummaries(fetched);
     setLoading(false);
-  }, [workspaces, range]);
+  }, [workspaces]);
 
   useEffect(() => {
-    // Gate polling on connection status — no point fetching when disconnected
-    if (connection.status !== 'connected') return;
+    if (connection.status !== "connected") return;
 
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 60_000);
+    fetchAll();
+    const interval = setInterval(fetchAll, 120_000); // refresh every 2 min
     return () => clearInterval(interval);
-  }, [fetchMetrics, connection]);
+  }, [fetchAll, connection]);
 
-  return { data, totalCost, loading };
+  const { points, stats } = filterSummaryByRange(summaries, range);
+
+  return { data: points, stats, loading };
 }

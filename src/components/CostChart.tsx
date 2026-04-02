@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
 import type { CostDataPoint } from "../hooks/useCostHistory";
+import type { CostStats } from "../hooks/useCostHistory";
 
 interface CostChartProps {
   data: CostDataPoint[];
-  totalCost: number;
+  stats: CostStats;
   loading: boolean;
   rangeLabel?: string;
 }
@@ -21,6 +22,13 @@ function getColor(index: number): string {
   return PROJECT_COLORS[index % PROJECT_COLORS.length];
 }
 
+function formatTokens(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return String(n);
+}
+
 interface TooltipData {
   x: number;
   y: number;
@@ -29,14 +37,13 @@ interface TooltipData {
   total: number;
 }
 
-function CostChart({ data, totalCost, loading, rangeLabel = "Cost History" }: CostChartProps) {
+function CostChart({ data, stats, loading, rangeLabel = "Cost History" }: CostChartProps) {
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
 
   const { dates, projects, dailyStacks, maxDayTotal } = useMemo(() => {
     const dateSet = [...new Set(data.map((d) => d.date))].sort();
     const projectSet = [...new Set(data.map((d) => d.project))];
 
-    // For each date, compute stacked values per project
     const stacks: Record<string, { project: string; cost: number }[]> = {};
     let maxTotal = 0;
 
@@ -75,7 +82,7 @@ function CostChart({ data, totalCost, loading, rangeLabel = "Cost History" }: Co
     );
   }
 
-  if (dates.length === 0) {
+  if (dates.length === 0 && stats.totalCost === 0) {
     return (
       <div className="bg-base-surface border border-base-border rounded-lg p-4">
         <p className="text-xs text-base-muted uppercase tracking-wider mb-3">
@@ -99,13 +106,12 @@ function CostChart({ data, totalCost, loading, rangeLabel = "Cost History" }: Co
   const plotHeight = chartHeight - paddingTop - paddingBottom;
 
   const barCount = dates.length;
-  const barGap = 4;
+  const barGap = Math.max(1, Math.min(4, Math.floor(plotWidth / barCount / 4)));
   const barWidth = Math.max(
-    4,
+    2,
     (plotWidth - barGap * (barCount - 1)) / barCount
   );
 
-  // Y-axis scale — round up to a nice number
   const yMax = maxDayTotal > 0 ? maxDayTotal * 1.15 : 1;
   const yTicks = 4;
 
@@ -117,6 +123,9 @@ function CostChart({ data, totalCost, loading, rangeLabel = "Cost History" }: Co
     const parts = dateStr.split("-");
     return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
   }
+
+  // Determine how often to show x-axis labels based on bar count
+  const labelInterval = barCount <= 14 ? 1 : barCount <= 30 ? 2 : Math.ceil(barCount / 15);
 
   function handleBarHover(
     e: React.MouseEvent<SVGRectElement>,
@@ -134,167 +143,198 @@ function CostChart({ data, totalCost, loading, rangeLabel = "Cost History" }: Co
       y,
       date,
       entries: entries
-        .map((en, i) => ({
+        .filter((en) => en.cost > 0)
+        .map((en) => ({
           ...en,
           color: getColor(projects.indexOf(en.project)),
-          _i: i,
-        }))
-        .filter((en) => en.cost > 0)
-        .map(({ _i, ...rest }) => rest),
+        })),
       total,
     });
   }
 
   return (
     <div className="bg-base-surface border border-base-border rounded-lg p-4">
-      {/* Header */}
+      {/* Header with total */}
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs text-base-muted uppercase tracking-wider">
           {rangeLabel}
         </p>
         <p className="text-sm font-bold text-accent-amber">
-          ${totalCost.toFixed(2)}
+          ${stats.totalCost.toFixed(2)}
         </p>
       </div>
 
-      {/* Legend */}
-      {projects.length > 0 && (
+      {/* Stats row */}
+      <div className="grid grid-cols-4 gap-3 mb-3">
+        <StatBox label="Daily Avg" value={`$${stats.dailyAverage.toFixed(2)}`} />
+        <StatBox label="Messages" value={formatTokens(stats.totalMessages)} />
+        <StatBox label="Output Tokens" value={formatTokens(stats.totalOutput)} />
+        <StatBox label="Cache Read" value={formatTokens(stats.totalCacheRead)} />
+      </div>
+
+      {/* Project breakdown — compact */}
+      {stats.projectBreakdown.length > 0 && (
         <div className="flex flex-wrap gap-3 mb-3">
-          {projects.map((proj, i) => (
-            <div key={proj} className="flex items-center gap-1.5">
+          {stats.projectBreakdown.map((pb, i) => (
+            <div key={pb.project} className="flex items-center gap-1.5">
               <span
                 className="w-2 h-2 rounded-sm flex-shrink-0"
-                style={{ backgroundColor: getColor(i) }}
+                style={{ backgroundColor: getColor(projects.indexOf(pb.project) >= 0 ? projects.indexOf(pb.project) : i) }}
               />
-              <span className="text-xs text-base-muted">{proj}</span>
+              <span className="text-xs text-base-muted">
+                {pb.project}{" "}
+                <span className="text-base-text font-medium">${pb.cost.toFixed(2)}</span>
+              </span>
             </div>
           ))}
         </div>
       )}
 
       {/* Chart */}
-      <div
-        className="relative"
-        onMouseLeave={() => setTooltip(null)}
-      >
-        <svg
-          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-          className="w-full"
-          style={{ fontFamily: "JetBrains Mono, monospace" }}
+      {dates.length > 0 && (
+        <div
+          className="relative"
+          onMouseLeave={() => setTooltip(null)}
         >
-          {/* Y-axis grid lines and labels */}
-          {Array.from({ length: yTicks + 1 }).map((_, i) => {
-            const val = (yMax / yTicks) * i;
-            const y = yToPixel(val);
-            return (
-              <g key={i}>
-                <line
-                  x1={paddingLeft}
-                  y1={y}
-                  x2={chartWidth - paddingRight}
-                  y2={y}
-                  stroke="#1e2433"
-                  strokeWidth={1}
-                />
-                <text
-                  x={paddingLeft - 6}
-                  y={y + 3}
-                  textAnchor="end"
-                  fill="#6b7280"
-                  fontSize={8}
-                >
-                  ${val.toFixed(val >= 10 ? 0 : 1)}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Bars */}
-          {dates.map((date, di) => {
-            const x = paddingLeft + di * (barWidth + barGap);
-            const entries = dailyStacks[date] ?? [];
-            let yOffset = 0;
-
-            return (
-              <g key={date}>
-                {/* Stacked bars */}
-                {entries.map((entry, ei) => {
-                  if (entry.cost <= 0) return null;
-                  const barH = (entry.cost / yMax) * plotHeight;
-                  const barY =
-                    paddingTop + plotHeight - yOffset - barH;
-                  yOffset += barH;
-                  return (
-                    <rect
-                      key={ei}
-                      x={x}
-                      y={barY}
-                      width={barWidth}
-                      height={barH}
-                      fill={getColor(projects.indexOf(entry.project))}
-                      rx={2}
-                      opacity={0.85}
-                    />
-                  );
-                })}
-
-                {/* Invisible hover target covering full column height */}
-                <rect
-                  x={x}
-                  y={paddingTop}
-                  width={barWidth}
-                  height={plotHeight}
-                  fill="transparent"
-                  onMouseEnter={(e) => handleBarHover(e, date, entries)}
-                  onMouseMove={(e) => handleBarHover(e, date, entries)}
-                  style={{ cursor: "pointer" }}
-                />
-
-                {/* X-axis labels — show every other if too crowded */}
-                {(barCount <= 14 || di % 2 === 0) && (
-                  <text
-                    x={x + barWidth / 2}
-                    y={chartHeight - 4}
-                    textAnchor="middle"
-                    fill="#6b7280"
-                    fontSize={7}
-                  >
-                    {formatShortDate(date)}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* Tooltip */}
-        {tooltip && tooltip.total > 0 && (
-          <div
-            className="absolute z-50 pointer-events-none bg-[#1a1f2e] border border-base-border rounded-md px-3 py-2 shadow-lg"
-            style={{
-              left: Math.min(tooltip.x + 12, chartWidth - 160),
-              top: Math.max(tooltip.y - 60, 0),
-            }}
+          <svg
+            viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+            className="w-full"
+            style={{ fontFamily: "JetBrains Mono, monospace" }}
           >
-            <p className="text-xs text-base-muted mb-1">{tooltip.date}</p>
-            {tooltip.entries.map((en, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs">
-                <span
-                  className="w-1.5 h-1.5 rounded-sm flex-shrink-0"
-                  style={{ backgroundColor: en.color }}
-                />
-                <span className="text-base-muted">{en.project}</span>
-                <span className="text-base-text ml-auto font-medium">
-                  ${en.cost.toFixed(2)}
-                </span>
+            {/* Y-axis grid lines and labels */}
+            {Array.from({ length: yTicks + 1 }).map((_, i) => {
+              const val = (yMax / yTicks) * i;
+              const y = yToPixel(val);
+              return (
+                <g key={i}>
+                  <line
+                    x1={paddingLeft}
+                    y1={y}
+                    x2={chartWidth - paddingRight}
+                    y2={y}
+                    stroke="#1e2433"
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={paddingLeft - 6}
+                    y={y + 3}
+                    textAnchor="end"
+                    fill="#6b7280"
+                    fontSize={8}
+                  >
+                    ${val.toFixed(val >= 10 ? 0 : 1)}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/* Daily average line */}
+            {stats.dailyAverage > 0 && stats.dailyAverage < yMax && (
+              <line
+                x1={paddingLeft}
+                y1={yToPixel(stats.dailyAverage)}
+                x2={chartWidth - paddingRight}
+                y2={yToPixel(stats.dailyAverage)}
+                stroke="#f97316"
+                strokeWidth={1}
+                strokeDasharray="4 3"
+                opacity={0.5}
+              />
+            )}
+
+            {/* Bars */}
+            {dates.map((date, di) => {
+              const x = paddingLeft + di * (barWidth + barGap);
+              const entries = dailyStacks[date] ?? [];
+              let yOffset = 0;
+
+              return (
+                <g key={date}>
+                  {entries.map((entry, ei) => {
+                    if (entry.cost <= 0) return null;
+                    const barH = (entry.cost / yMax) * plotHeight;
+                    const barY =
+                      paddingTop + plotHeight - yOffset - barH;
+                    yOffset += barH;
+                    return (
+                      <rect
+                        key={ei}
+                        x={x}
+                        y={barY}
+                        width={barWidth}
+                        height={barH}
+                        fill={getColor(projects.indexOf(entry.project))}
+                        rx={barWidth > 4 ? 2 : 1}
+                        opacity={0.85}
+                      />
+                    );
+                  })}
+
+                  <rect
+                    x={x}
+                    y={paddingTop}
+                    width={barWidth}
+                    height={plotHeight}
+                    fill="transparent"
+                    onMouseEnter={(e) => handleBarHover(e, date, entries)}
+                    onMouseMove={(e) => handleBarHover(e, date, entries)}
+                    style={{ cursor: "pointer" }}
+                  />
+
+                  {di % labelInterval === 0 && (
+                    <text
+                      x={x + barWidth / 2}
+                      y={chartHeight - 4}
+                      textAnchor="middle"
+                      fill="#6b7280"
+                      fontSize={7}
+                    >
+                      {formatShortDate(date)}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </svg>
+
+          {/* Tooltip */}
+          {tooltip && tooltip.total > 0 && (
+            <div
+              className="absolute z-50 pointer-events-none bg-[#1a1f2e] border border-base-border rounded-md px-3 py-2 shadow-lg"
+              style={{
+                left: Math.min(tooltip.x + 12, chartWidth - 160),
+                top: Math.max(tooltip.y - 60, 0),
+              }}
+            >
+              <p className="text-xs text-base-muted mb-1">{tooltip.date}</p>
+              {tooltip.entries.map((en, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  <span
+                    className="w-1.5 h-1.5 rounded-sm flex-shrink-0"
+                    style={{ backgroundColor: en.color }}
+                  />
+                  <span className="text-base-muted">{en.project}</span>
+                  <span className="text-base-text ml-auto font-medium">
+                    ${en.cost.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+              <div className="border-t border-base-border mt-1 pt-1 text-xs text-accent-amber font-medium">
+                Total: ${tooltip.total.toFixed(2)}
               </div>
-            ))}
-            <div className="border-t border-base-border mt-1 pt-1 text-xs text-accent-amber font-medium">
-              Total: ${tooltip.total.toFixed(2)}
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-base-bg border border-base-border rounded px-2.5 py-1.5">
+      <p className="text-[10px] text-base-muted uppercase tracking-wider">{label}</p>
+      <p className="text-xs font-semibold text-base-text">{value}</p>
     </div>
   );
 }
