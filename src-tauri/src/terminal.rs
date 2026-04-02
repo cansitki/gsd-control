@@ -10,6 +10,12 @@ pub struct TerminalSession {
     pub stdin_tx: mpsc::Sender<Vec<u8>>,
     /// PID of the SSH child process — used to kill it instantly on close
     pub child_pid: Option<u32>,
+    /// Workspace name — needed for resize_terminal SSH calls
+    pub workspace: String,
+    /// Coder username — needed for resize_terminal SSH calls
+    pub coder_user: String,
+    /// Tmux session name — Some if this terminal is attached to tmux
+    pub tmux_session: Option<String>,
 }
 
 pub type TerminalStore = Arc<Mutex<HashMap<String, TerminalSession>>>;
@@ -61,7 +67,13 @@ pub async fn open_terminal(
     // Store the session with PID for instant kill on close
     {
         let mut store = store.lock().await;
-        store.insert(id.clone(), TerminalSession { stdin_tx, child_pid });
+        store.insert(id.clone(), TerminalSession {
+            stdin_tx,
+            child_pid,
+            workspace: workspace.clone(),
+            coder_user: coder_user.clone(),
+            tmux_session: None,
+        });
     }
 
     let id_clone = id.clone();
@@ -166,7 +178,13 @@ pub async fn open_terminal_tmux(
 
     {
         let mut store = store.lock().await;
-        store.insert(id.clone(), TerminalSession { stdin_tx, child_pid });
+        store.insert(id.clone(), TerminalSession {
+            stdin_tx,
+            child_pid,
+            workspace: workspace.clone(),
+            coder_user: coder_user.clone(),
+            tmux_session: Some(tmux_session.clone()),
+        });
     }
 
     let id_clone = id.clone();
@@ -262,12 +280,31 @@ pub async fn close_terminal(id: &str, store: TerminalStore) {
 }
 
 pub async fn resize_terminal(
-    _id: &str,
-    _cols: u16,
-    _rows: u16,
-    _store: TerminalStore,
+    id: &str,
+    cols: u16,
+    rows: u16,
+    store: TerminalStore,
 ) -> Result<(), String> {
-    // Resize is best-effort with this approach
-    // Full PTY resize support requires the nix crate — can add later
+    // Read session metadata and drop the lock before any SSH I/O
+    let (workspace, coder_user, tmux_session) = {
+        let store = store.lock().await;
+        match store.get(id) {
+            Some(session) => (
+                session.workspace.clone(),
+                session.coder_user.clone(),
+                session.tmux_session.clone(),
+            ),
+            None => return Err(format!("Terminal {} not found", id)),
+        }
+    };
+
+    // Only send resize for tmux sessions — plain SSH has no remote resize mechanism
+    if let Some(tmux_name) = tmux_session {
+        let cmd = format!("tmux resize-window -t {} -x {} -y {}", tmux_name, cols, rows);
+        crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, &cmd)
+            .await
+            .map_err(|e| format!("tmux resize failed: {}", e))?;
+    }
+
     Ok(())
 }
