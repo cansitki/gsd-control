@@ -208,17 +208,26 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
         // Clear any garbage escape sequences from tmux attach
         term.reset();
 
-        const el = containerRef.current;
-        if (el && el.offsetWidth > 0 && el.offsetHeight > 0) {
-          fitAddon.fit();
-          lastColsRef.current = term.cols;
-          lastRowsRef.current = term.rows;
-        }
-        await invoke("terminal_resize", {
-          id: tabId,
-          cols: term.cols,
-          rows: term.rows,
-        }).catch(() => {});
+        // Fit after DOM settles — two passes to catch layout shifts
+        const doFit = () => {
+          const el = containerRef.current;
+          if (el && el.offsetWidth > 0 && el.offsetHeight > 0) {
+            fitAddon.fit();
+            lastColsRef.current = term.cols;
+            lastRowsRef.current = term.rows;
+            invoke("terminal_resize", {
+              id: tabId,
+              cols: term.cols,
+              rows: term.rows,
+            }).catch(() => {});
+          }
+        };
+
+        requestAnimationFrame(() => {
+          doFit();
+          // Second pass — catches late layout shifts from tab/view transitions
+          setTimeout(doFit, 250);
+        });
       } catch (e) {
         connectingRef.current = false;
         if (!mountedRef.current) return;

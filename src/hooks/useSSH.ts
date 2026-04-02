@@ -1,12 +1,39 @@
 import { useEffect, useCallback, useRef } from "react";
 import { debugInvoke as invoke } from "../lib/debugInvoke";
 import { useAppStore, createEmptySession } from "../stores/appStore";
-import type { GSDStatus, TmuxSessionInfo } from "../lib/types";
+import type { GSDSession, GSDStatus, TmuxSessionInfo } from "../lib/types";
 import { emptyStatus } from "../lib/logParser";
 
 // Retry backoff delays in ms: immediate, 2s, 5s
 const RETRY_DELAYS = [0, 2000, 5000];
 const MAX_RETRY_ATTEMPTS = 3;
+
+/**
+ * Only update a session in the store if something actually changed.
+ * Prevents unnecessary React re-renders on every 30s poll cycle.
+ */
+function setSessionIfChanged(next: GSDSession): void {
+  const current = useAppStore.getState().sessions[next.id];
+  if (current) {
+    // Compare the fields that matter for rendering
+    const same =
+      current.isRunning === next.isRunning &&
+      current.status.autoMode === next.status.autoMode &&
+      current.status.milestone === next.status.milestone &&
+      current.status.slice === next.status.slice &&
+      current.status.taskCurrent === next.status.taskCurrent &&
+      current.status.taskTotal === next.status.taskTotal &&
+      current.status.phase === next.status.phase &&
+      current.status.cost === next.status.cost &&
+      current.status.tokensRead === next.status.tokensRead &&
+      current.status.tokensWrite === next.status.tokensWrite &&
+      current.status.cacheHitRate === next.status.cacheHitRate &&
+      (current.tmuxSessions?.length ?? 0) === (next.tmuxSessions?.length ?? 0) &&
+      current.displayName === next.displayName;
+    if (same) return;
+  }
+  useAppStore.getState().setSession(next);
+}
 
 // Python script that runs on the workspace and outputs JSON with all GSD data
 const GSD_FETCH_SCRIPT = `
@@ -379,7 +406,7 @@ export function useSSH() {
                 attached: false,
               }));
 
-              setSession({
+              setSessionIfChanged({
                 id: sessionId,
                 workspace: ws.displayName,
                 project: proj.path,
@@ -393,7 +420,7 @@ export function useSSH() {
                 terminalPreview: remote.terminalPreview || [],
               });
             } else {
-              setSession(
+              setSessionIfChanged(
                 createEmptySession(ws.coderName, proj.path, proj.path, proj.displayName)
               );
             }
@@ -404,7 +431,7 @@ export function useSSH() {
           console.error(`Failed to fetch GSD data from ${ws.coderName}:`, e);
           setWorkspaceHealth(ws.coderName, 'error');
           for (const proj of ws.projects) {
-            setSession(
+            setSessionIfChanged(
               createEmptySession(ws.coderName, proj.path, proj.path, proj.displayName)
             );
           }
