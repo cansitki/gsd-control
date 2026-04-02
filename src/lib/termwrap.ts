@@ -57,8 +57,10 @@ export class TermWrap {
   private readonly serializeAddon: SerializeAddon;
   private readonly opts: TermWrapOptions;
   private readonly resizeObserver: ResizeObserver;
+  private readonly elem: HTMLElement;
 
   private fitTimer: ReturnType<typeof setTimeout> | null = null;
+  private fitSettleTimer: ReturnType<typeof setTimeout> | null = null;
   private lastCols = 0;
   private lastRows = 0;
   private unlisteners: Array<Promise<() => void>> = [];
@@ -67,7 +69,7 @@ export class TermWrap {
 
   /** Debug log ring buffer — last N fit/resize events */
   public readonly debugLog: string[] = [];
-  private _debugMaxLines = 40;
+  private _debugMaxLines = 200;
 
   public _debug(msg: string): void {
     const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
@@ -77,6 +79,7 @@ export class TermWrap {
 
   constructor(elem: HTMLElement, opts: TermWrapOptions = {}) {
     this.opts = opts;
+    this.elem = elem;
 
     const theme = opts.theme ?? DEFAULT_THEME;
     this.terminal = new Terminal({
@@ -207,6 +210,8 @@ export class TermWrap {
   fit(force = false): void {
     if (this.disposed) return;
     if (this.fitTimer) clearTimeout(this.fitTimer);
+    // Cancel any pending settle timer — a new fit request means we're still moving
+    if (this.fitSettleTimer) clearTimeout(this.fitSettleTimer);
     this.fitTimer = setTimeout(() => {
       if (this.disposed) return;
       try {
@@ -215,19 +220,37 @@ export class TermWrap {
         this._debug("fit: FitAddon threw (not attached?)");
         return;
       }
+      const rect = this.elem.getBoundingClientRect();
       const dims: ITerminalDimensions | undefined =
         this.fitAddon.proposeDimensions();
       if (!dims) {
-        this._debug("fit: proposeDimensions returned undefined");
+        this._debug(`fit: proposeDimensions=undefined container=${Math.round(rect.width)}x${Math.round(rect.height)}`);
         return;
       }
       const changed = dims.cols !== this.lastCols || dims.rows !== this.lastRows;
-      this._debug(`fit: ${dims.cols}x${dims.rows} was=${this.lastCols}x${this.lastRows} force=${force} changed=${changed}`);
+      const actual = `actual=${this.terminal.cols}x${this.terminal.rows}`;
+      this._debug(`fit: ${dims.cols}x${dims.rows} was=${this.lastCols}x${this.lastRows} ${actual} container=${Math.round(rect.width)}x${Math.round(rect.height)} force=${force} changed=${changed}`);
       if (force || changed) {
         this.lastCols = dims.cols;
         this.lastRows = dims.rows;
         this.opts.onResize?.(dims.cols, dims.rows);
       }
+      // Schedule a settle fit — if no more resize events arrive within 250ms,
+      // do one final force-fit to catch any animation that ended between the
+      // last debounce and now
+      this.fitSettleTimer = setTimeout(() => {
+        if (this.disposed) return;
+        this._debug("fit-settle: final force-fit");
+        try { this.fitAddon.fit(); } catch { return; }
+        const d = this.fitAddon.proposeDimensions();
+        if (!d) return;
+        if (d.cols !== this.lastCols || d.rows !== this.lastRows) {
+          this._debug(`fit-settle: ${d.cols}x${d.rows} (was ${this.lastCols}x${this.lastRows})`);
+          this.lastCols = d.cols;
+          this.lastRows = d.rows;
+          this.opts.onResize?.(d.cols, d.rows);
+        }
+      }, 250);
     }, 50);
   }
 
@@ -273,6 +296,10 @@ export class TermWrap {
     if (this.fitTimer) {
       clearTimeout(this.fitTimer);
       this.fitTimer = null;
+    }
+    if (this.fitSettleTimer) {
+      clearTimeout(this.fitSettleTimer);
+      this.fitSettleTimer = null;
     }
 
     // Unlisten Tauri events

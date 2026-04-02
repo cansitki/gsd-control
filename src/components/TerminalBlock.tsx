@@ -391,7 +391,17 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         >
           <div className="flex items-center justify-between mb-1 sticky top-0 bg-black/90">
             <span className="text-yellow-500 font-bold text-[10px]">FIT DEBUG</span>
-            <button onClick={() => setShowDebug(false)} className="text-yellow-500 hover:text-white ml-2">✕</button>
+            <div className="flex gap-1">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(debugLines.join("\n")).catch(() => {});
+                }}
+                className="text-yellow-500 hover:text-white text-[9px] px-1 border border-yellow-500/30 rounded"
+              >
+                Copy
+              </button>
+              <button onClick={() => setShowDebug(false)} className="text-yellow-500 hover:text-white ml-1">✕</button>
+            </div>
           </div>
           {debugLines.length === 0 ? (
             <div className="text-yellow-500/50">Waiting for fit events...</div>
