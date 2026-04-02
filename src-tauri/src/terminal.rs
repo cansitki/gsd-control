@@ -33,22 +33,31 @@ pub struct TerminalData {
 pub async fn open_terminal(
     id: String,
     workspace: String,
-    _key_path: String,
+    tmux_session: Option<String>,
     coder_user: String,
-    _host: String,
     app: AppHandle,
     store: TerminalStore,
 ) -> Result<(), String> {
-    // Connect directly to the workspace via its SSH alias
     let ssh_host = crate::ssh::workspace_ssh_host(&workspace, &coder_user);
 
-    let mut child = crate::ssh::ssh_command()
-        .args([
-            "-tt",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "ConnectTimeout=30",
-            &ssh_host,
-        ])
+    // Build SSH args — shared base, with tmux-specific additions when needed
+    let mut cmd = crate::ssh::ssh_command();
+    cmd.args([
+        "-tt",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=30",
+    ]);
+
+    if let Some(ref tmux_name) = tmux_session {
+        // Set TERM so tmux can use terminal capabilities (clear, colors, etc.)
+        cmd.args(["-o", "SetEnv=TERM=xterm-256color"]);
+        cmd.arg(&ssh_host);
+        cmd.arg(format!("TERM=xterm-256color tmux attach-session -t {}", tmux_name));
+    } else {
+        cmd.arg(&ssh_host);
+    }
+
+    let mut child = cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -72,7 +81,7 @@ pub async fn open_terminal(
             child_pid,
             workspace: workspace.clone(),
             coder_user: coder_user.clone(),
-            tmux_session: None,
+            tmux_session,
         });
     }
 
@@ -126,110 +135,6 @@ pub async fn open_terminal(
     });
 
     // Wait for the process to exit (non-blocking — runs in background)
-    let id_exit = id.clone();
-    let app_exit = app.clone();
-    let store_exit = store.clone();
-    tokio::spawn(async move {
-        let _ = child.wait().await;
-        let mut store = store_exit.lock().await;
-        store.remove(&id_exit);
-        let _ = app_exit.emit(&format!("terminal_closed_{}", id_exit), ());
-    });
-
-    Ok(())
-}
-
-/// Open a terminal that attaches to an existing tmux session on the workspace
-pub async fn open_terminal_tmux(
-    id: String,
-    workspace: String,
-    tmux_session: String,
-    coder_user: String,
-    app: AppHandle,
-    store: TerminalStore,
-) -> Result<(), String> {
-    let ssh_host = crate::ssh::workspace_ssh_host(&workspace, &coder_user);
-
-    // SSH in and attach to the tmux session
-    // Set TERM so tmux can use terminal capabilities (clear, colors, etc.)
-    let tmux_cmd = format!("TERM=xterm-256color tmux attach-session -t {}", tmux_session);
-    let mut child = crate::ssh::ssh_command()
-        .args([
-            "-tt",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "ConnectTimeout=30",
-            "-o", "SetEnv=TERM=xterm-256color",
-            &ssh_host,
-            &tmux_cmd,
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn SSH: {}", e))?;
-
-    let child_pid = child.id();
-
-    let mut stdout = child.stdout.take().ok_or("No stdout")?;
-    let mut stderr = child.stderr.take().ok_or("No stderr")?;
-    let mut stdin = child.stdin.take().ok_or("No stdin")?;
-
-    let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(256);
-
-    {
-        let mut store = store.lock().await;
-        store.insert(id.clone(), TerminalSession {
-            stdin_tx,
-            child_pid,
-            workspace: workspace.clone(),
-            coder_user: coder_user.clone(),
-            tmux_session: Some(tmux_session.clone()),
-        });
-    }
-
-    let id_clone = id.clone();
-    let app_clone = app.clone();
-    tokio::spawn(async move {
-        let mut buf = vec![0u8; 4096];
-        loop {
-            match stdout.read(&mut buf).await {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    let _ = app_clone.emit(
-                        &format!("terminal_data_{}", id_clone),
-                        buf[..n].to_vec(),
-                    );
-                }
-            }
-        }
-        let _ = app_clone.emit(&format!("terminal_closed_{}", id_clone), ());
-    });
-
-    let id_clone2 = id.clone();
-    let app_clone2 = app.clone();
-    tokio::spawn(async move {
-        let mut buf = vec![0u8; 4096];
-        loop {
-            match stderr.read(&mut buf).await {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    let _ = app_clone2.emit(
-                        &format!("terminal_data_{}", id_clone2),
-                        buf[..n].to_vec(),
-                    );
-                }
-            }
-        }
-    });
-
-    tokio::spawn(async move {
-        while let Some(data) = stdin_rx.recv().await {
-            if stdin.write_all(&data).await.is_err() {
-                break;
-            }
-        }
-    });
-
     let id_exit = id.clone();
     let app_exit = app.clone();
     let store_exit = store.clone();

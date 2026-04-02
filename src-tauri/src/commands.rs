@@ -254,21 +254,15 @@ pub async fn terminal_open(
     terminals: State<'_, TerminalStore>,
     app: AppHandle,
 ) -> Result<(), String> {
-    let (key_path, user, host, coder_user) = {
+    let coder_user = {
         let mgr = ssh.lock().await;
-        (
-            mgr.config.key_path.clone(),
-            mgr.config.user.clone(),
-            mgr.config.host.clone(),
-            mgr.config.coder_user.clone(),
-        )
+        mgr.config.coder_user.clone()
     };
     crate::terminal::open_terminal(
         id,
         workspace,
-        key_path,
+        None,
         coder_user,
-        host,
         app,
         terminals.inner().clone(),
     )
@@ -316,10 +310,10 @@ pub async fn terminal_open_tmux(
         let mgr = ssh.lock().await;
         mgr.config.coder_user.clone()
     };
-    crate::terminal::open_terminal_tmux(
+    crate::terminal::open_terminal(
         id,
         workspace,
-        tmux_session,
+        Some(tmux_session),
         coder_user,
         app,
         terminals.inner().clone(),
