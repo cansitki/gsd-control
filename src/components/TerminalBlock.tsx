@@ -276,15 +276,11 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         connectingRef.current = false;
         tw._debug("connected=true");
 
-        // Reset terminal to wipe the "Connecting..." header lines from the
-        // buffer. Without this, those lines stay in scrollback and push tmux
-        // content down, creating a gap at the bottom where the last rows of
-        // tmux output are pushed below the visible viewport.
-        // (WebGL is disabled so reset() is safe — no renderer corruption.)
-        tw.terminal.reset();
-
         // Fit after connect — force=true ensures resize is sent to tmux
-        // even if dims haven't changed since the initial fit
+        // even if dims haven't changed since the initial fit.
+        // The fit triggers terminal_resize + stty to fix the client PTY size.
+        // We then reset the terminal after a delay to wipe the initial 80x24
+        // draw that tmux sends before the resize takes effect.
         requestAnimationFrame(() => {
           tw._debug("post-connect fit(true) RAF");
           tw.fit(true);
@@ -296,6 +292,14 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
             tw._debug("post-connect fit(true) +300ms");
             tw.fit(true);
           }, 300);
+          setTimeout(() => {
+            tw._debug("post-connect fit(true) +500ms — reset to clear 80x24 ghost");
+            // Reset AFTER the stty resize has taken effect — this clears the
+            // initial 80x24 tmux draw from scrollback. tmux will immediately
+            // redraw at the correct size.
+            tw.terminal.reset();
+            tw.fit(true);
+          }, 500);
           setTimeout(() => {
             tw._debug("post-connect fit(true) +1000ms");
             tw.fit(true);
