@@ -5,6 +5,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { useAppStore } from "../stores/appStore";
 import { WATCHER_SCRIPT } from "../lib/watcherScript";
 import { escapeShellSingleQuote } from "../lib/shell";
+import { getDebugLogs, getDebugLogVersion, clearDebugLogs as clearLogBuffer } from "../lib/debugLogBuffer";
 import type { SSHProfile, WorkspaceConfig, DebugLevel } from "../lib/types";
 
 function Settings() {
@@ -522,18 +523,32 @@ function Settings() {
 // ── DebugLogsSection — isolated to avoid re-rendering Settings on every log ──
 
 const DebugLogsSection = memo(function DebugLogsSection() {
-  const debugLogs = useAppStore((s) => s.debugLogs);
-  const clearDebugLogs = useAppStore((s) => s.clearDebugLogs);
   const debugLevel = useAppStore((s) => s.debugLevel);
   const setDebugLevel = useAppStore((s) => s.setDebugLevel);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [logCount, setLogCount] = useState(0);
 
-  // Auto-scroll to bottom when new logs arrive
+  // Poll the ring buffer every 500ms when visible — zero Zustand overhead
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [debugLogs.length]);
+    let lastVersion = -1;
+
+    const tick = () => {
+      const v = getDebugLogVersion();
+      if (v !== lastVersion) {
+        lastVersion = v;
+        const all = getDebugLogs();
+        setLogs(all.slice(-200));
+        setLogCount(all.length);
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      }
+    };
+    tick(); // initial read
+    const interval = setInterval(tick, 500);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <section className="mb-8">
@@ -559,25 +574,25 @@ const DebugLogsSection = memo(function DebugLogsSection() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
-              navigator.clipboard.writeText(debugLogs.join("\n")).catch(() => {});
+              navigator.clipboard.writeText(logs.join("\n")).catch(() => {});
             }}
             className="text-xs px-3 py-1.5 rounded border border-accent-blue/30 text-accent-blue hover:bg-accent-blue/10 transition-colors"
           >
             📋 Copy Logs
           </button>
           <button
-            onClick={clearDebugLogs}
+            onClick={() => { clearLogBuffer(); setLogs([]); setLogCount(0); }}
             className="text-xs px-3 py-1.5 rounded border border-base-border text-base-muted hover:text-base-text transition-colors"
           >
             Clear
           </button>
-          <span className="text-xs text-base-muted">{debugLogs.length} entries</span>
+          <span className="text-xs text-base-muted">{logCount} entries</span>
         </div>
         <div ref={scrollRef} className="bg-base-bg border border-base-border rounded p-2 max-h-[300px] overflow-y-auto font-mono">
-          {debugLogs.length === 0 ? (
+          {logs.length === 0 ? (
             <p className="text-xs text-base-muted">No logs yet — logs are captured automatically.</p>
           ) : (
-            debugLogs.slice(-200).map((log, i) => (
+            logs.map((log, i) => (
               <div
                 key={i}
                 className={`text-xs py-0.5 ${
@@ -594,7 +609,7 @@ const DebugLogsSection = memo(function DebugLogsSection() {
           )}
         </div>
         <p className="text-xs text-base-muted/60">
-          Last 200 of {debugLogs.length}. Max 5000 entries (~200 min).{" "}
+          Last 200 of {logCount}. Max 5000 entries (~200 min).{" "}
           {debugLevel === "off"
             ? "Logging off — only uncaught errors captured."
             : debugLevel === "normal"

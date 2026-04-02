@@ -65,9 +65,6 @@ interface AppState {
   // Debug
   debugLevel: DebugLevel;
   setDebugLevel: (level: DebugLevel) => void;
-  debugLogs: string[];
-  addDebugLog: (log: string) => void;
-  clearDebugLogs: () => void;
 
   // Polling
   lastPollTime: number;
@@ -219,12 +216,6 @@ export const useAppStore = create<AppState>()(persist((set) => ({
   // Debug
   debugLevel: "normal",
   setDebugLevel: (level) => set({ debugLevel: level }),
-  debugLogs: [],
-  addDebugLog: (log) =>
-    set((state) => ({
-      debugLogs: [...state.debugLogs, log].slice(-5000),
-    })),
-  clearDebugLogs: () => set({ debugLogs: [] }),
 
   // Polling
   lastPollTime: 0,

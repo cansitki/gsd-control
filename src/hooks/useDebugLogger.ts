@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useAppStore } from "../stores/appStore";
+import { addDebugLog } from "../lib/debugLogBuffer";
 
 const origConsole = {
   log: console.log,
@@ -22,16 +23,15 @@ export function useDebugLogger() {
   const debugLevel = useAppStore((s) => s.debugLevel);
 
   useEffect(() => {
-    const addLog = useAppStore.getState().addDebugLog;
     const ts = () => new Date().toISOString().slice(11, 23);
     const cleanups: (() => void)[] = [];
 
     // --- Always: uncaught error + rejection handlers ---
     const onError = (e: ErrorEvent) => {
-      addLog(`[${ts()}] UNCAUGHT: ${e.message} at ${e.filename}:${e.lineno}`);
+      addDebugLog(`[${ts()}] UNCAUGHT: ${e.message} at ${e.filename}:${e.lineno}`);
     };
     const onRejection = (e: PromiseRejectionEvent) => {
-      addLog(`[${ts()}] REJECTION: ${e.reason}`);
+      addDebugLog(`[${ts()}] REJECTION: ${e.reason}`);
     };
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onRejection);
@@ -46,14 +46,14 @@ export function useDebugLogger() {
 
     // --- Normal + Extreme: app state snapshot ---
     const state = useAppStore.getState();
-    addLog(`[${ts()}] DEBUG ENABLED (${debugLevel})`);
-    addLog(`[${ts()}] Connection: ${state.connection.status}`);
-    addLog(`[${ts()}] Profiles: ${state.config.sshProfiles?.length ?? 0}`);
-    addLog(
+    addDebugLog(`[${ts()}] DEBUG ENABLED (${debugLevel})`);
+    addDebugLog(`[${ts()}] Connection: ${state.connection.status}`);
+    addDebugLog(`[${ts()}] Profiles: ${state.config.sshProfiles?.length ?? 0}`);
+    addDebugLog(
       `[${ts()}] Workspaces: ${state.workspaces.map((w) => w.coderName).join(", ") || "none"}`
     );
-    addLog(`[${ts()}] Sessions: ${Object.keys(state.sessions).length}`);
-    addLog(`[${ts()}] Tabs: ${state.terminalTabs.length}`);
+    addDebugLog(`[${ts()}] Sessions: ${Object.keys(state.sessions).length}`);
+    addDebugLog(`[${ts()}] Tabs: ${state.terminalTabs.length}`);
 
     // --- Normal + Extreme: connection status subscription ---
     let prevStatus = state.connection.status;
@@ -62,11 +62,11 @@ export function useDebugLogger() {
       const { status, error } = s.connection;
       if (status !== prevStatus) {
         const errStr = error ? ` (${error})` : "";
-        addLog(`[${ts()}] CONNECTION: ${prevStatus} → ${status}${errStr}`);
+        addDebugLog(`[${ts()}] CONNECTION: ${prevStatus} → ${status}${errStr}`);
         prevStatus = status;
         prevError = error;
       } else if (error !== prevError) {
-        addLog(`[${ts()}] CONNECTION ERROR: ${error}`);
+        addDebugLog(`[${ts()}] CONNECTION ERROR: ${error}`);
         prevError = error;
       }
     });
@@ -81,19 +81,19 @@ export function useDebugLogger() {
       console.log = (...args: unknown[]) => {
         if (insideHijack) { origConsole.log(...args); return; }
         insideHijack = true;
-        try { addLog(`[${ts()}] ${args.map(String).join(" ")}`); } finally { insideHijack = false; }
+        try { addDebugLog(`[${ts()}] ${args.map(String).join(" ")}`); } finally { insideHijack = false; }
         origConsole.log(...args);
       };
       console.warn = (...args: unknown[]) => {
         if (insideHijack) { origConsole.warn(...args); return; }
         insideHijack = true;
-        try { addLog(`[${ts()}] WARN: ${args.map(String).join(" ")}`); } finally { insideHijack = false; }
+        try { addDebugLog(`[${ts()}] WARN: ${args.map(String).join(" ")}`); } finally { insideHijack = false; }
         origConsole.warn(...args);
       };
       console.error = (...args: unknown[]) => {
         if (insideHijack) { origConsole.error(...args); return; }
         insideHijack = true;
-        try { addLog(`[${ts()}] ERROR: ${args.map(String).join(" ")}`); } finally { insideHijack = false; }
+        try { addDebugLog(`[${ts()}] ERROR: ${args.map(String).join(" ")}`); } finally { insideHijack = false; }
         origConsole.error(...args);
       };
       cleanups.push(() => {
@@ -107,14 +107,13 @@ export function useDebugLogger() {
       const unsubState = useAppStore.subscribe((next) => {
         const changedKeys: string[] = [];
         for (const key of Object.keys(next) as (keyof typeof next)[]) {
-          if (key === "debugLogs") continue; // skip — addLog mutates debugLogs, tracking it causes infinite recursion
           if (next[key] !== prevState[key]) {
             changedKeys.push(key);
           }
         }
         if (changedKeys.length > 0) {
           insideHijack = true;
-          try { addLog(`[${ts()}] [STATE] changed: ${changedKeys.join(", ")}`); } finally { insideHijack = false; }
+          try { addDebugLog(`[${ts()}] [STATE] changed: ${changedKeys.join(", ")}`); } finally { insideHijack = false; }
         }
         prevState = next;
       });

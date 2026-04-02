@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../stores/appStore";
+import { addDebugLog } from "./debugLogBuffer";
 
 const REDACTED_KEYS = new Set(["keyContent", "keyPath", "botToken", "chatId"]);
 
@@ -22,7 +23,7 @@ export async function debugInvoke<T>(
   cmd: string,
   args?: Record<string, unknown>
 ): Promise<T> {
-  const { debugLevel, addDebugLog } = useAppStore.getState();
+  const { debugLevel } = useAppStore.getState();
 
   if (debugLevel !== "extreme") {
     return invoke<T>(cmd, args);
