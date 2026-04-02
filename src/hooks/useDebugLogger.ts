@@ -74,16 +74,26 @@ export function useDebugLogger() {
 
     if (debugLevel === "extreme") {
       // --- Extreme: console hijacking ---
+      // Reentrant guard: addLog → set() → persist middleware may console.log internally.
+      // Without this guard, hijacked console.log calls addLog which calls set() which
+      // triggers a console.log → infinite recursion → stack overflow.
+      let insideHijack = false;
       console.log = (...args: unknown[]) => {
-        addLog(`[${ts()}] ${args.map(String).join(" ")}`);
+        if (insideHijack) { origConsole.log(...args); return; }
+        insideHijack = true;
+        try { addLog(`[${ts()}] ${args.map(String).join(" ")}`); } finally { insideHijack = false; }
         origConsole.log(...args);
       };
       console.warn = (...args: unknown[]) => {
-        addLog(`[${ts()}] WARN: ${args.map(String).join(" ")}`);
+        if (insideHijack) { origConsole.warn(...args); return; }
+        insideHijack = true;
+        try { addLog(`[${ts()}] WARN: ${args.map(String).join(" ")}`); } finally { insideHijack = false; }
         origConsole.warn(...args);
       };
       console.error = (...args: unknown[]) => {
-        addLog(`[${ts()}] ERROR: ${args.map(String).join(" ")}`);
+        if (insideHijack) { origConsole.error(...args); return; }
+        insideHijack = true;
+        try { addLog(`[${ts()}] ERROR: ${args.map(String).join(" ")}`); } finally { insideHijack = false; }
         origConsole.error(...args);
       };
       cleanups.push(() => {
@@ -103,7 +113,8 @@ export function useDebugLogger() {
           }
         }
         if (changedKeys.length > 0) {
-          addLog(`[${ts()}] [STATE] changed: ${changedKeys.join(", ")}`);
+          insideHijack = true;
+          try { addLog(`[${ts()}] [STATE] changed: ${changedKeys.join(", ")}`); } finally { insideHijack = false; }
         }
         prevState = next;
       });
