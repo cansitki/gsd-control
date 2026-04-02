@@ -4,6 +4,18 @@ import { addDebugLog } from "../lib/debugLogBuffer";
 import { useAppStore } from "../stores/appStore";
 import { escapeShellSingleQuote } from "../lib/shell";
 
+// ---------- Preview types ----------
+
+interface PreviewState {
+  fileName: string | null;
+  content: string | null;
+  loading: boolean;
+  error: string | null;
+  isText: boolean;
+  mimeType: string | null;
+  fileSize: string;
+}
+
 // ---------- Types ----------
 
 interface FileEntry {
@@ -21,6 +33,31 @@ interface ExplorerBlockProps {
   remotePath?: string;
   workspace: string;
 }
+
+// ---------- Constants ----------
+
+/** MIME types we treat as previewable text. */
+const TEXT_MIME_PREFIXES = ["text/"];
+const TEXT_MIME_EXACT = new Set([
+  "application/json",
+  "application/javascript",
+  "application/xml",
+  "application/x-yaml",
+  "application/x-sh",
+  "application/x-shellscript",
+  "application/x-ruby",
+  "application/x-perl",
+  "application/x-python",
+  "application/toml",
+  "application/x-toml",
+  "inode/x-empty",
+]);
+
+/** Files above this size (bytes) get a warning instead of fetching content. */
+const MAX_PREVIEW_SIZE = 1_048_576; // 1 MB
+
+/** Max bytes fetched for text preview. */
+const PREVIEW_BYTE_LIMIT = 50_000;
 
 // ---------- Helpers ----------
 
@@ -143,6 +180,13 @@ function pathSegments(path: string): { label: string; path: string }[] {
   return segments;
 }
 
+/** Check whether a MIME type is considered previewable text. */
+function isTextMime(mime: string): boolean {
+  const trimmed = mime.trim().toLowerCase();
+  if (TEXT_MIME_EXACT.has(trimmed)) return true;
+  return TEXT_MIME_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+}
+
 // ---------- Component ----------
 
 export default function ExplorerBlock({
@@ -155,7 +199,17 @@ export default function ExplorerBlock({
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewState>({
+    fileName: null,
+    content: null,
+    loading: false,
+    error: null,
+    isText: true,
+    mimeType: null,
+    fileSize: "0",
+  });
   const updateBlock = useAppStore((s) => s.updateBlock);
+  const addBlock = useAppStore((s) => s.addBlock);
   const connection = useAppStore((s) => s.connection);
   const mountedRef = useRef(true);
   const fetchIdRef = useRef(0);
@@ -215,16 +269,160 @@ export default function ExplorerBlock({
     [blockId, updateBlock]
   );
 
-  /** Handle clicking a directory entry. */
+  /** Preview a file — detect binary, fetch text content, handle large/empty files. */
+  const handleFilePreview = useCallback(
+    async (entry: FileEntry) => {
+      const fullPath = currentPath.endsWith("/")
+        ? currentPath + entry.name
+        : currentPath + "/" + entry.name;
+      const escapedPath = escapeShellSingleQuote(fullPath);
+
+      addDebugLog(
+        `[ExplorerBlock:${blockId}] preview start file='${entry.name}' size=${entry.size}`
+      );
+
+      // Check file size — if > 1MB, show warning without fetching
+      const sizeBytes = parseInt(entry.size, 10);
+      if (!isNaN(sizeBytes) && sizeBytes > MAX_PREVIEW_SIZE) {
+        setPreview({
+          fileName: entry.name,
+          content: null,
+          loading: false,
+          error: `File too large to preview (${humanSize(entry.size)})`,
+          isText: false,
+          mimeType: null,
+          fileSize: entry.size,
+        });
+        addDebugLog(
+          `[ExplorerBlock:${blockId}] preview skip — file too large (${humanSize(entry.size)})`
+        );
+        return;
+      }
+
+      // Start loading
+      setPreview({
+        fileName: entry.name,
+        content: null,
+        loading: true,
+        error: null,
+        isText: true,
+        mimeType: null,
+        fileSize: entry.size,
+      });
+
+      // Step 1: detect MIME type
+      let detectedMime = "text/plain";
+      try {
+        const mimeOutput = await invoke<string>("exec_in_workspace", {
+          workspace,
+          command: `file --mime-type -b '${escapedPath}'`,
+        });
+        detectedMime = mimeOutput.trim();
+        addDebugLog(
+          `[ExplorerBlock:${blockId}] preview mime='${detectedMime}' file='${entry.name}'`
+        );
+      } catch {
+        // On error/timeout, assume text and try to preview anyway
+        addDebugLog(
+          `[ExplorerBlock:${blockId}] preview mime detection failed, assuming text`
+        );
+      }
+
+      if (!mountedRef.current) return;
+
+      const textFile = isTextMime(detectedMime);
+
+      if (!textFile) {
+        // Binary file — show metadata, no content fetch
+        setPreview({
+          fileName: entry.name,
+          content: null,
+          loading: false,
+          error: null,
+          isText: false,
+          mimeType: detectedMime,
+          fileSize: entry.size,
+        });
+        addDebugLog(
+          `[ExplorerBlock:${blockId}] preview binary file='${entry.name}' mime='${detectedMime}'`
+        );
+        return;
+      }
+
+      // Step 2: fetch text content (first 50KB)
+      try {
+        const content = await invoke<string>("exec_in_workspace", {
+          workspace,
+          command: `head -c ${PREVIEW_BYTE_LIMIT} '${escapedPath}'`,
+        });
+        if (!mountedRef.current) return;
+
+        setPreview({
+          fileName: entry.name,
+          content: content.length === 0 ? null : content,
+          loading: false,
+          error: content.length === 0 ? "Empty file" : null,
+          isText: true,
+          mimeType: detectedMime,
+          fileSize: entry.size,
+        });
+        addDebugLog(
+          `[ExplorerBlock:${blockId}] preview loaded file='${entry.name}' bytes=${content.length}`
+        );
+      } catch (err) {
+        if (!mountedRef.current) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        setPreview({
+          fileName: entry.name,
+          content: null,
+          loading: false,
+          error: `Failed to read file: ${msg}`,
+          isText: true,
+          mimeType: detectedMime,
+          fileSize: entry.size,
+        });
+        addDebugLog(
+          `[ExplorerBlock:${blockId}] preview error file='${entry.name}' err='${msg}'`
+        );
+      }
+    },
+    [blockId, currentPath, workspace]
+  );
+
+  /** Handle clicking a directory or file entry. */
   const handleEntryClick = useCallback(
     (entry: FileEntry) => {
       if (entry.isDir || entry.isSymlink) {
         navigateTo(resolvePath(currentPath, entry.name));
+        return;
       }
-      // File clicks are no-op for now (T02 will add file preview)
+      // File click — open preview
+      handleFilePreview(entry);
     },
-    [currentPath, navigateTo]
+    [currentPath, handleFilePreview, navigateTo]
   );
+
+  /** Close the preview panel. */
+  const closePreview = useCallback(() => {
+    setPreview((prev) => ({ ...prev, fileName: null, content: null, error: null }));
+  }, []);
+
+  /** Open a terminal block cd'd to the current directory. */
+  const handleOpenTerminalHere = useCallback(() => {
+    const dirName = currentPath.split("/").filter(Boolean).pop() || "/";
+    const termId = `term-${Date.now()}`;
+    addBlock({
+      id: termId,
+      type: "terminal",
+      workspace,
+      project: currentPath,
+      title: `📁 ${dirName}`,
+      isActive: true,
+    });
+    addDebugLog(
+      `[ExplorerBlock:${blockId}] open-terminal-here path='${currentPath}' blockId='${termId}'`
+    );
+  }, [addBlock, blockId, currentPath, workspace]);
 
   /** Navigate up one level. */
   const handleUp = useCallback(() => {
@@ -289,6 +487,15 @@ export default function ExplorerBlock({
           title="Refresh"
         >
           ↻
+        </button>
+        {/* Open terminal here */}
+        <button
+          type="button"
+          className="px-1.5 py-0.5 text-sm text-base-muted rounded hover:bg-[#2a302a] hover:text-base-fg"
+          onClick={handleOpenTerminalHere}
+          title="Open terminal here"
+        >
+          &gt;_
         </button>
         {/* Breadcrumb bar */}
         <div className="flex-1 flex items-center gap-0.5 overflow-x-auto text-xs ml-1.5 scrollbar-none">
@@ -362,11 +569,7 @@ export default function ExplorerBlock({
               {entries.map((entry) => (
                 <tr
                   key={entry.name}
-                  className={`border-b border-base-border/30 hover:bg-[#1e241e] ${
-                    entry.isDir || entry.isSymlink
-                      ? "cursor-pointer"
-                      : "cursor-default"
-                  }`}
+                  className="border-b border-base-border/30 hover:bg-[#1e241e] cursor-pointer"
                   onClick={() => handleEntryClick(entry)}
                 >
                   <td className="py-1 pl-3 pr-2 truncate max-w-0">
@@ -397,6 +600,73 @@ export default function ExplorerBlock({
           </div>
         )}
       </div>
+
+      {/* Preview panel — slides up from bottom when a file is selected */}
+      {preview.fileName && (
+        <div className="shrink-0 border-t border-base-border bg-[#1a201a] max-h-[45%] flex flex-col">
+          {/* Preview header */}
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-base-border/50 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs font-medium text-base-fg truncate">
+                {preview.fileName}
+              </span>
+              <span className="text-[10px] text-base-muted shrink-0">
+                {humanSize(preview.fileSize)}
+                {preview.mimeType && ` · ${preview.mimeType}`}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="ml-2 px-1.5 py-0.5 text-xs text-base-muted rounded hover:bg-[#2a302a] hover:text-base-fg shrink-0"
+              onClick={closePreview}
+              title="Close preview"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Preview content */}
+          <div className="flex-1 overflow-auto p-3">
+            {/* Loading state */}
+            {preview.loading && (
+              <div className="flex items-center justify-center py-6">
+                <div className="w-4 h-4 border-2 border-base-muted border-t-transparent rounded-full animate-spin" />
+                <span className="ml-2 text-xs text-base-muted">Loading preview…</span>
+              </div>
+            )}
+
+            {/* Error / warning state */}
+            {!preview.loading && preview.error && (
+              <div className="text-center py-4">
+                <span className="text-lg">
+                  {preview.error.startsWith("File too large") ? "📦" : preview.error === "Empty file" ? "📄" : "⚠️"}
+                </span>
+                <p className="text-xs mt-1 text-base-muted">{preview.error}</p>
+              </div>
+            )}
+
+            {/* Binary file metadata */}
+            {!preview.loading && !preview.error && !preview.isText && (
+              <div className="text-center py-4">
+                <span className="text-lg">🔒</span>
+                <p className="text-xs mt-1.5 text-base-muted">
+                  Binary file — cannot preview
+                </p>
+                <p className="text-[10px] mt-1 text-base-muted">
+                  {preview.mimeType} · {humanSize(preview.fileSize)}
+                </p>
+              </div>
+            )}
+
+            {/* Text content */}
+            {!preview.loading && !preview.error && preview.isText && preview.content && (
+              <pre className="text-xs text-base-muted font-mono whitespace-pre-wrap break-words leading-relaxed">
+                {preview.content}
+              </pre>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
