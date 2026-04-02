@@ -193,7 +193,7 @@ function Settings() {
   };
 
   return (
-    <div className="h-full overflow-y-auto p-6 max-w-2xl">
+    <div className="h-full overflow-y-auto p-6 max-w-4xl mx-auto">
       <h2 className="text-sm font-bold text-base-text mb-6">Settings</h2>
 
       {/* Connection Status */}
