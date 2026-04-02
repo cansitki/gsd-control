@@ -5,7 +5,7 @@ import { useSecrets } from "./hooks/useSecrets";
 import { useKeyboardShortcuts, setGlobalRefresh, onShortcutsHelpToggle } from "./hooks/useKeyboardShortcuts";
 import Sidebar from "./components/Sidebar";
 import Dashboard from "./components/Dashboard";
-import TerminalTabs from "./components/TerminalTabs";
+import BlockLayout from "./components/BlockLayout";
 import LogViewer from "./components/LogViewer";
 import Settings from "./components/Settings";
 import StatusBar from "./components/StatusBar";
@@ -40,7 +40,7 @@ function AppShell() {
         <Sidebar />
         <main className="flex-1 min-w-0 min-h-0 overflow-hidden">
           {currentView === "dashboard" && <Dashboard />}
-          {currentView === "terminal" && <TerminalTabs />}
+          {currentView === "terminal" && <BlockLayout />}
           {currentView === "logs" && <LogViewer />}
           {currentView === "settings" && <Settings />}
         </main>

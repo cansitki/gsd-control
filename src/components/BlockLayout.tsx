@@ -2,7 +2,16 @@ import { useState, useEffect } from "react";
 import { debugInvoke as invoke } from "../lib/debugInvoke";
 import { useAppStore } from "../stores/appStore";
 import { sanitizeShellArg } from "../lib/shell";
+import type { Block, BlockType } from "../lib/types";
 import TerminalBlock from "./TerminalBlock";
+import BrowserBlock from "./BrowserBlock";
+import ExplorerBlock from "./ExplorerBlock";
+
+const BLOCK_ICON: Record<BlockType, string> = {
+  terminal: ">_",
+  browser: "🌐",
+  explorer: "📁",
+};
 
 interface TmuxSession {
   name: string;
@@ -13,7 +22,7 @@ interface TmuxSession {
 
 function SessionManager({ onClose }: { onClose: () => void }) {
   const workspaces = useAppStore((s) => s.workspaces);
-  const terminalTabs = useAppStore((s) => s.terminalTabs);
+  const blocks = useAppStore((s) => s.blocks);
   const connection = useAppStore((s) => s.connection);
   const [sessions, setSessions] = useState<TmuxSession[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,8 +46,8 @@ function SessionManager({ onClose }: { onClose: () => void }) {
         for (const line of output.split("\n")) {
           const name = line.trim();
           if (!name) continue;
-          const attached = terminalTabs.some(
-            (t) => t.tmuxSession === name && t.workspace === ws.coderName
+          const attached = blocks.some(
+            (b) => b.tmuxSession === name && b.workspace === ws.coderName
           );
           sessions.push({
             name,
@@ -159,30 +168,58 @@ function SessionManager({ onClose }: { onClose: () => void }) {
 }
 
 const LAYOUTS = [
-  { value: "tabs" as const, label: "▭" , title: "Single tab view" },
+  { value: "tabs" as const, label: "▭", title: "Single tab view" },
   { value: "grid-2" as const, label: "⬒2", title: "2-up grid" },
   { value: "grid-4" as const, label: "⬒4", title: "4-up grid" },
   { value: "grid-6" as const, label: "⬒6", title: "6-up grid" },
 ];
 
-function TerminalTabs() {
-  const terminalTabs = useAppStore((s) => s.terminalTabs);
-  const activeTerminalId = useAppStore((s) => s.activeTerminalId);
-  const terminalLayout = useAppStore((s) => s.terminalLayout);
-  const setActiveTerminal = useAppStore((s) => s.setActiveTerminal);
-  const removeTerminalTab = useAppStore((s) => s.removeTerminalTab);
-  const addTerminalTab = useAppStore((s) => s.addTerminalTab);
-  const setTerminalLayout = useAppStore((s) => s.setTerminalLayout);
+function renderBlock(block: Block, visible: boolean) {
+  switch (block.type) {
+    case "terminal":
+      return (
+        <TerminalBlock
+          tabId={block.id}
+          workspace={block.workspace}
+          project={block.project}
+          visible={visible}
+          tmuxSession={block.tmuxSession}
+        />
+      );
+    case "browser":
+      return (
+        <BrowserBlock blockId={block.id} visible={visible} url={block.url} />
+      );
+    case "explorer":
+      return (
+        <ExplorerBlock
+          blockId={block.id}
+          visible={visible}
+          remotePath={block.remotePath}
+        />
+      );
+  }
+}
+
+function BlockLayout() {
+  const blocks = useAppStore((s) => s.blocks);
+  const activeBlockId = useAppStore((s) => s.activeBlockId);
+  const blockLayout = useAppStore((s) => s.blockLayout);
+  const setActiveBlock = useAppStore((s) => s.setActiveBlock);
+  const removeBlock = useAppStore((s) => s.removeBlock);
+  const addBlock = useAppStore((s) => s.addBlock);
+  const setBlockLayout = useAppStore((s) => s.setBlockLayout);
   const workspaces = useAppStore((s) => s.workspaces);
   const [showSessions, setShowSessions] = useState(false);
 
-  const handleNewTab = () => {
+  const handleNewBlock = () => {
     if (workspaces.length === 0 || workspaces[0].projects.length === 0) return;
     const ws = workspaces[0];
     const proj = ws.projects[0];
     const id = `term-${Date.now()}`;
-    addTerminalTab({
+    addBlock({
       id,
+      type: "terminal",
       workspace: ws.coderName,
       project: proj.path,
       title: `${ws.displayName} · ${proj.displayName}`,
@@ -190,9 +227,9 @@ function TerminalTabs() {
     });
   };
 
-  const isGrid = terminalLayout !== "tabs";
-  const gridCount = isGrid ? parseInt(terminalLayout.split("-")[1], 10) : 0;
-  const gridTabs = isGrid ? terminalTabs.slice(0, gridCount) : [];
+  const isGrid = blockLayout !== "tabs";
+  const gridCount = isGrid ? parseInt(blockLayout.split("-")[1], 10) : 0;
+  const gridBlocks = isGrid ? blocks.slice(0, gridCount) : [];
 
   // Grid CSS classes
   const gridClass = isGrid
@@ -208,21 +245,22 @@ function TerminalTabs() {
       {/* Tab bar */}
       <div className="flex items-center border-b border-base-border bg-base-surface px-2 flex-shrink-0">
         <div className="flex items-center overflow-x-auto flex-1 min-w-0">
-          {terminalTabs.map((tab) => (
+          {blocks.map((block) => (
             <div
-              key={tab.id}
+              key={block.id}
               className={`flex items-center gap-2 px-3 py-2 text-xs cursor-pointer border-b-2 transition-colors flex-shrink-0 ${
-                activeTerminalId === tab.id
+                activeBlockId === block.id
                   ? "border-accent-orange text-accent-orange"
                   : "border-transparent text-base-muted hover:text-base-text"
               }`}
-              onClick={() => setActiveTerminal(tab.id)}
+              onClick={() => setActiveBlock(block.id)}
             >
-              <span className="truncate max-w-[120px]">{tab.title}</span>
+              <span className="opacity-60">{BLOCK_ICON[block.type]}</span>
+              <span className="truncate max-w-[120px]">{block.title}</span>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  removeTerminalTab(tab.id);
+                  removeBlock(block.id);
                 }}
                 className="text-base-muted hover:text-accent-red text-xs ml-1"
               >
@@ -231,9 +269,9 @@ function TerminalTabs() {
             </div>
           ))}
           <button
-            onClick={handleNewTab}
+            onClick={handleNewBlock}
             className="px-3 py-2 text-base-muted hover:text-accent-green text-sm flex-shrink-0"
-            title="New terminal tab"
+            title="New terminal block"
           >
             +
           </button>
@@ -244,9 +282,9 @@ function TerminalTabs() {
           {LAYOUTS.map((opt) => (
             <button
               key={opt.value}
-              onClick={() => setTerminalLayout(opt.value)}
+              onClick={() => setBlockLayout(opt.value)}
               className={`px-1.5 py-1 text-xs rounded transition-colors ${
-                terminalLayout === opt.value
+                blockLayout === opt.value
                   ? "bg-accent-orange/20 text-accent-orange"
                   : "text-base-muted hover:text-base-text"
               }`}
@@ -265,14 +303,14 @@ function TerminalTabs() {
         </div>
       </div>
 
-      {/* Terminal area — takes all remaining space */}
+      {/* Block area — takes all remaining space */}
       <div className="flex-1 min-h-0 min-w-0 relative overflow-hidden bg-[#141a14]">
-        {terminalTabs.length === 0 ? (
+        {blocks.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <p className="text-base-muted text-sm mb-2">No terminals open</p>
+              <p className="text-base-muted text-sm mb-2">No blocks open</p>
               <button
-                onClick={handleNewTab}
+                onClick={handleNewBlock}
                 className="text-xs text-accent-orange hover:text-accent-orange/80 border border-accent-orange/30 rounded px-3 py-1.5"
               >
                 Open Terminal
@@ -281,44 +319,41 @@ function TerminalTabs() {
           </div>
         ) : isGrid ? (
           /* Grid layout */
-          <div className={`h-full ${gridClass}`} style={{ background: "#1a1e2e" }}>
-            {gridTabs.map((tab) => (
+          <div
+            className={`h-full ${gridClass}`}
+            style={{ background: "#1a1e2e" }}
+          >
+            {gridBlocks.map((block) => (
               <div
-                key={tab.id}
+                key={block.id}
                 className={`relative overflow-hidden ${
-                  activeTerminalId === tab.id
+                  activeBlockId === block.id
                     ? "ring-1 ring-accent-orange/40 ring-inset"
                     : ""
                 }`}
-                onClick={() => setActiveTerminal(tab.id)}
+                onClick={() => setActiveBlock(block.id)}
               >
                 {/* Grid cell label */}
                 <div className="absolute top-0 left-0 right-0 z-10 px-2 py-0.5 bg-[#141a14]/80">
                   <span className="text-xs text-base-muted truncate block">
-                    {tab.title}
+                    {BLOCK_ICON[block.type]} {block.title}
                   </span>
                 </div>
                 <div className="absolute inset-0 pt-[18px]">
-                  <TerminalBlock
-                    tabId={tab.id}
-                    workspace={tab.workspace}
-                    project={tab.project}
-                    visible={true}
-                    tmuxSession={tab.tmuxSession}
-                  />
+                  {renderBlock(block, true)}
                 </div>
               </div>
             ))}
             {/* Empty grid slots */}
             {Array.from({
-              length: Math.max(0, gridCount - gridTabs.length),
+              length: Math.max(0, gridCount - gridBlocks.length),
             }).map((_, i) => (
               <div
                 key={`empty-${i}`}
                 className="flex items-center justify-center bg-[#141a14]"
               >
                 <button
-                  onClick={handleNewTab}
+                  onClick={handleNewBlock}
                   className="text-xs text-base-muted/30 hover:text-base-muted border border-dashed border-base-border/20 rounded px-3 py-1.5 transition-colors"
                 >
                   + Open
@@ -328,20 +363,16 @@ function TerminalTabs() {
           </div>
         ) : (
           /* Single tab layout */
-          terminalTabs.map((tab) => (
+          blocks.map((block) => (
             <div
-              key={tab.id}
+              key={block.id}
               className={`absolute inset-0 ${
-                activeTerminalId === tab.id ? "visible z-[1]" : "invisible z-0"
+                activeBlockId === block.id
+                  ? "visible z-[1]"
+                  : "invisible z-0"
               }`}
             >
-              <TerminalBlock
-                tabId={tab.id}
-                workspace={tab.workspace}
-                project={tab.project}
-                visible={activeTerminalId === tab.id}
-                tmuxSession={tab.tmuxSession}
-              />
+              {renderBlock(block, activeBlockId === block.id)}
             </div>
           ))
         )}
@@ -354,4 +385,4 @@ function TerminalTabs() {
   );
 }
 
-export default TerminalTabs;
+export default BlockLayout;
