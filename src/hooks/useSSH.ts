@@ -60,24 +60,55 @@ for event_log in glob.glob(home + "/**/.gsd/event-log.jsonl", recursive=True):
         data["state"] = state
     except: data["state"] = ""
 
-    # Read metrics
+    # Read cost from activity JSONL files (cumulative, survives session resets)
     try:
-        metrics = json.load(open(os.path.join(gsd_dir, "metrics.json")))
-        units = metrics.get("units", [])
-        data["totalCost"] = round(sum(u.get("cost", 0) for u in units), 2)
-        data["totalUnits"] = len(units)
-        data["model"] = units[-1].get("model", "") if units else ""
-        # Sum all tokens across all units
+        activity_dir = os.path.join(gsd_dir, "activity")
+        total_cost = 0
         total_input = 0
         total_output = 0
         total_cache_read = 0
         total_cache_write = 0
-        for u in units:
-            t = u.get("tokens", {})
-            total_input += t.get("input", 0)
-            total_output += t.get("output", 0)
-            total_cache_read += t.get("cacheRead", 0)
-            total_cache_write += t.get("cacheWrite", 0)
+        total_units = 0
+        model = ""
+        if os.path.isdir(activity_dir):
+            for f in sorted(glob.glob(os.path.join(activity_dir, "*.jsonl"))):
+                try:
+                    with open(f) as fh:
+                        for line in fh:
+                            try: obj = json.loads(line)
+                            except: continue
+                            if obj.get("type") != "message": continue
+                            msg = obj.get("message", {})
+                            usage = msg.get("usage", {})
+                            cost_obj = usage.get("cost", {})
+                            c = cost_obj.get("total", 0)
+                            if c <= 0: continue
+                            total_cost += c
+                            total_units += 1
+                            total_input += usage.get("input", 0)
+                            total_output += usage.get("output", 0)
+                            total_cache_read += usage.get("cacheRead", 0)
+                            total_cache_write += usage.get("cacheWrite", 0)
+                            model = msg.get("model", model)
+                except: continue
+        # Fallback to metrics.json if no activity data
+        if total_cost == 0:
+            try:
+                metrics = json.load(open(os.path.join(gsd_dir, "metrics.json")))
+                units = metrics.get("units", [])
+                total_cost = round(sum(u.get("cost", 0) for u in units), 2)
+                total_units = len(units)
+                model = units[-1].get("model", "") if units else ""
+                for u in units:
+                    t = u.get("tokens", {})
+                    total_input += t.get("input", 0)
+                    total_output += t.get("output", 0)
+                    total_cache_read += t.get("cacheRead", 0)
+                    total_cache_write += t.get("cacheWrite", 0)
+            except: pass
+        data["totalCost"] = round(total_cost, 2)
+        data["totalUnits"] = total_units
+        data["model"] = model
         data["totalTokens"] = {
             "input": total_input,
             "output": total_output,
@@ -85,13 +116,6 @@ for event_log in glob.glob(home + "/**/.gsd/event-log.jsonl", recursive=True):
             "cacheWrite": total_cache_write,
             "total": total_input + total_output + total_cache_read + total_cache_write
         }
-        # Last milestone unit
-        milestone_units = [u for u in units if u.get("type") == "complete-milestone"]
-        if milestone_units:
-            last = milestone_units[-1]
-            data["lastMilestoneCost"] = round(last.get("cost", 0), 2)
-            data["lastMilestoneTokens"] = last.get("tokens", {})
-            data["lastMilestoneCacheHit"] = last.get("cacheHitRate")
     except:
         data["totalCost"] = 0
         data["totalUnits"] = 0
