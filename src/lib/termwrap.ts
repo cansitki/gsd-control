@@ -81,7 +81,7 @@ export class TermWrap {
     this.terminal = new Terminal({
       fontFamily: opts.fontFamily ?? DEFAULTS.fontFamily,
       fontSize: opts.fontSize ?? DEFAULTS.fontSize,
-      lineHeight: 1.4,
+      lineHeight: 1.15,
       cursorBlink: true,
       cursorStyle: "block",
       scrollback: opts.scrollback ?? DEFAULTS.scrollback,
