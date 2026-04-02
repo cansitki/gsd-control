@@ -235,7 +235,7 @@ export const useAppStore = create<AppState>()(persist((set) => ({
       workspaceHealth: { ...state.workspaceHealth, [workspace]: status },
     })),
 }), {
-  name: "gsd-control-v2",
+  name: "gsd-control-v3",
   version: 3,
   storage: createJSONStorage(() => localStorage),
   migrate: (persistedState: unknown, _version: number) => {
