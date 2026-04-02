@@ -132,7 +132,19 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         onResize: (cols, rows) => {
           tw._debug(`onResize → ${cols}x${rows} connected=${connectedRef.current}`);
           if (connectedRef.current) {
-            invoke("terminal_resize", { id: tabId, cols, rows }).catch(() => {});
+            invoke("terminal_resize", { id: tabId, cols, rows }).catch((e) => {
+              tw._debug(`terminal_resize FAILED: ${e}`);
+            });
+            // Diagnostic: run resize + capture tmux state to see what's happening
+            const tmux = sanitizeShellArg(tmuxSessionProp || tmuxSessionName(tabId, project));
+            invoke<string>("exec_in_workspace", {
+              workspace,
+              command: `echo "=== RESIZE DIAG ===" && tmux display-message -t ${tmux} -p "client_width=#{client_width} client_height=#{client_height} window_width=#{window_width} window_height=#{window_height}" 2>&1 && tmux list-clients -t ${tmux} -F "client=#{client_name} width=#{client_width} height=#{client_height}" 2>&1 && tmux list-windows -t ${tmux} -F "window=#{window_name} width=#{window_width} height=#{window_height}" 2>&1`,
+            }).then((output) => {
+              tw._debug(`tmux-diag: ${output.replace(/\n/g, ' | ')}`);
+            }).catch((e) => {
+              tw._debug(`tmux-diag FAILED: ${e}`);
+            });
           }
         },
         onClose: () => {
