@@ -458,10 +458,10 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
   }, [tabId, workspace, project, tmuxSessionProp]);
 
   return (
-    <>
+    <div className="relative w-full h-full">
       <div
         ref={containerRef}
-        className="w-full h-full bg-[#141a14] overflow-hidden"
+        className="absolute inset-0 bg-[#141a14] overflow-hidden"
         onClick={() => setContextMenu(null)}
       />
 
@@ -509,7 +509,7 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
