@@ -331,12 +331,9 @@ function TerminalTabs() {
           terminalTabs.map((tab) => (
             <div
               key={tab.id}
-              className="absolute inset-0"
-              style={{
-                visibility:
-                  activeTerminalId === tab.id ? "visible" : "hidden",
-                zIndex: activeTerminalId === tab.id ? 1 : 0,
-              }}
+              className={`absolute inset-0 ${
+                activeTerminalId === tab.id ? "visible z-[1]" : "invisible z-0"
+              }`}
             >
               <Terminal
                 tabId={tab.id}

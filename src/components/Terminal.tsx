@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -21,6 +21,12 @@ function tmuxSessionName(_tabId: string, project: string): string {
   return `gsd-term-${clean}`;
 }
 
+interface ContextMenuState {
+  x: number;
+  y: number;
+  hasSelection: boolean;
+}
+
 function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSessionProp }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
@@ -32,6 +38,8 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
   const lastColsRef = useRef(0);
   const lastRowsRef = useRef(0);
   const updateTerminalTabRef = useRef(useAppStore.getState().updateTerminalTab);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+
   useEffect(() => {
     updateTerminalTabRef.current = useAppStore.getState().updateTerminalTab;
   });
@@ -69,6 +77,46 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
     return () => cancelAnimationFrame(raf);
   }, [visible, debouncedFit]);
 
+  // Copy selection to clipboard
+  const handleCopy = useCallback(() => {
+    const term = terminalRef.current;
+    if (!term) return;
+    const sel = term.getSelection();
+    if (sel) {
+      navigator.clipboard.writeText(sel).catch(() => {});
+    }
+    setContextMenu(null);
+  }, []);
+
+  // Paste from clipboard into terminal
+  const handlePaste = useCallback(() => {
+    navigator.clipboard.readText().then((text) => {
+      if (!text || !connectedRef.current) return;
+      const encoded = new TextEncoder().encode(text);
+      invoke("terminal_write", {
+        id: tabId,
+        data: Array.from(encoded),
+      }).catch(() => {});
+    }).catch(() => {});
+    setContextMenu(null);
+  }, [tabId]);
+
+  // Select all text in terminal
+  const handleSelectAll = useCallback(() => {
+    const term = terminalRef.current;
+    if (!term) return;
+    term.selectAll();
+    setContextMenu(null);
+  }, []);
+
+  // Clear terminal
+  const handleClear = useCallback(() => {
+    const term = terminalRef.current;
+    if (!term) return;
+    term.clear();
+    setContextMenu(null);
+  }, []);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -87,6 +135,7 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
       scrollOnUserInput: true,
       fastScrollModifier: "alt",
       convertEol: false,
+      rightClickSelectsWord: true,
       theme: {
         background: "#141a14",
         foreground: "#c8cdd8",
@@ -119,27 +168,65 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Initial fit — two passes to catch layout settling
-    requestAnimationFrame(() => {
+    // Fit helper — called after layout settles and after font loads
+    const doInitialFit = () => {
       const el = containerRef.current;
       if (el && el.offsetWidth > 0 && el.offsetHeight > 0) {
         fitAddon.fit();
         lastColsRef.current = term.cols;
         lastRowsRef.current = term.rows;
       }
-      // Second pass after CSS/layout fully settles
-      setTimeout(() => {
-        const el2 = containerRef.current;
-        if (el2 && el2.offsetWidth > 0 && el2.offsetHeight > 0) {
-          fitAddon.fit();
-          lastColsRef.current = term.cols;
-          lastRowsRef.current = term.rows;
-        }
-      }, 150);
+    };
+
+    // Initial fit — wait for fonts then fit. Two passes for layout settling.
+    const fontReady = document.fonts?.ready ?? Promise.resolve();
+    fontReady.then(() => {
+      requestAnimationFrame(() => {
+        doInitialFit();
+        // Second pass after CSS/layout fully settles
+        setTimeout(doInitialFit, 200);
+      });
     });
 
-    // Let tmux handle scroll via mouse mode (set during connect).
-    // No local wheel interception needed — tmux enters copy-mode on scroll up.
+    // Re-fit when fonts load/swap (JetBrains Mono from Google Fonts uses display=swap)
+    const onFontChange = () => debouncedFit();
+    document.fonts?.addEventListener?.("loadingdone", onFontChange);
+
+    // Block native context menu on terminal — we show our own
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const hasSelection = !!term.getSelection();
+      setContextMenu({ x: e.clientX, y: e.clientY, hasSelection });
+    };
+    containerRef.current.addEventListener("contextmenu", handleContextMenu);
+    const containerEl = containerRef.current;
+
+    // Cmd+C / Ctrl+C: copy if there's a selection, otherwise send interrupt
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "c") {
+        const sel = term.getSelection();
+        if (sel) {
+          e.preventDefault();
+          navigator.clipboard.writeText(sel).catch(() => {});
+          return;
+        }
+        // No selection — let it pass through as Ctrl+C interrupt
+      }
+      // Cmd+V / Ctrl+Shift+V: paste
+      if ((e.metaKey && e.key === "v") || (e.ctrlKey && e.shiftKey && e.key === "V")) {
+        e.preventDefault();
+        navigator.clipboard.readText().then((text) => {
+          if (!text || !connectedRef.current) return;
+          const encoded = new TextEncoder().encode(text);
+          invoke("terminal_write", {
+            id: tabId,
+            data: Array.from(encoded),
+          }).catch(() => {});
+        }).catch(() => {});
+      }
+    };
+    containerRef.current.addEventListener("keydown", handleKeyDown, true);
 
     const unlistenData = listen<number[]>(
       `terminal_data_${tabId}`,
@@ -194,10 +281,11 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
 
         updateTerminalTabRef.current(tabId, { tmuxSession: tmuxName });
 
-        // Enable tmux mouse mode so scroll wheel enters copy-mode for history
+        // Disable tmux mouse mode — let xterm handle selection/copy natively.
+        // Tmux mouse mode steals mouse events, breaking text selection and copy.
         await invoke("exec_in_workspace", {
           workspace,
-          command: `tmux set-option -t ${tmuxName} mouse on 2>/dev/null; true`,
+          command: `tmux set-option -t ${tmuxName} mouse off 2>/dev/null; true`,
         });
 
         term.writeln("");
@@ -277,11 +365,34 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
     const handleWindowResize = () => debouncedFit();
     window.addEventListener("resize", handleWindowResize);
 
+    // Re-render terminal when app comes back from minimize/background.
+    // The xterm canvas goes stale when the window is hidden — force a
+    // refresh + re-fit so the user sees current output without scrolling.
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && terminalRef.current) {
+        terminalRef.current.refresh(0, terminalRef.current.rows - 1);
+        debouncedFit();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    const handleFocus = () => {
+      if (terminalRef.current) {
+        terminalRef.current.refresh(0, terminalRef.current.rows - 1);
+        debouncedFit();
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+
     return () => {
       mountedRef.current = false;
       if (fitTimerRef.current) clearTimeout(fitTimerRef.current);
       resizeObserver.disconnect();
       window.removeEventListener("resize", handleWindowResize);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      document.fonts?.removeEventListener?.("loadingdone", onFontChange);
+      containerEl.removeEventListener("contextmenu", handleContextMenu);
+      containerEl.removeEventListener("keydown", handleKeyDown, true);
       unlistenData.then((fn) => fn());
       unlistenClose.then((fn) => fn());
       invoke("terminal_close", { id: tabId }).catch(() => {});
@@ -293,10 +404,58 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
   }, [tabId, workspace, project, tmuxSessionProp]);
 
   return (
-    <div
-      ref={containerRef}
-      className="w-full h-full bg-[#141a14] overflow-hidden"
-    />
+    <>
+      <div
+        ref={containerRef}
+        className="w-full h-full bg-[#141a14] overflow-hidden"
+        onClick={() => setContextMenu(null)}
+      />
+
+      {/* Custom context menu */}
+      {contextMenu && (
+        <div
+          className="fixed inset-0 z-50"
+          onClick={() => setContextMenu(null)}
+          onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }}
+        >
+          <div
+            className="absolute bg-base-surface border border-base-border rounded-lg shadow-xl py-1 min-w-[140px]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={handleCopy}
+              disabled={!contextMenu.hasSelection}
+              className="w-full text-left px-3 py-1.5 text-xs text-base-text hover:bg-base-bg transition-colors disabled:opacity-30 disabled:cursor-default flex items-center justify-between"
+            >
+              <span>Copy</span>
+              <span className="text-base-muted ml-4">⌘C</span>
+            </button>
+            <button
+              onClick={handlePaste}
+              className="w-full text-left px-3 py-1.5 text-xs text-base-text hover:bg-base-bg transition-colors flex items-center justify-between"
+            >
+              <span>Paste</span>
+              <span className="text-base-muted ml-4">⌘V</span>
+            </button>
+            <div className="border-t border-base-border my-1" />
+            <button
+              onClick={handleSelectAll}
+              className="w-full text-left px-3 py-1.5 text-xs text-base-text hover:bg-base-bg transition-colors flex items-center justify-between"
+            >
+              <span>Select All</span>
+              <span className="text-base-muted ml-4">⌘A</span>
+            </button>
+            <button
+              onClick={handleClear}
+              className="w-full text-left px-3 py-1.5 text-xs text-base-text hover:bg-base-bg transition-colors"
+            >
+              Clear Terminal
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

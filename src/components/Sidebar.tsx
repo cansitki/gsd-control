@@ -508,6 +508,7 @@ function Sidebar() {
     x: number;
     y: number;
     workspace: string;
+    wsDisplay: string;
     project: { path: string; displayName: string };
   } | null>(null);
   const [confirmRemoveWorkspace, setConfirmRemoveWorkspace] = useState<{
@@ -523,7 +524,7 @@ function Sidebar() {
     workspace: string;
     wsDisplay: string;
     project: { path: string; displayName: string };
-    sessions: { name: string; windows: number; attached: boolean; isIdle: boolean; idleSeconds: number }[];
+    sessions: { name: string; tabId?: string; windows: number; attached: boolean; isIdle: boolean; idleSeconds: number }[];
   } | null>(null);
 
   const navItems: { view: ViewMode; label: string; icon: string }[] = [
@@ -627,22 +628,40 @@ function Sidebar() {
                 const handleProjectClick = () => {
                   setSelectedProject(sessionId);
 
-                  // If there's already a tab for this project, just switch to it
+                  // Check how many terminal tabs exist for this project
                   const tabs = useAppStore.getState().terminalTabs;
-                  const existing = tabs.find(
+                  const projectTabs = tabs.filter(
                     (t: TerminalTab) =>
                       t.workspace === ws.coderName && t.project === proj.path
                   );
-                  if (existing) {
-                    setActiveTerminal(existing.id);
+
+                  // Multiple tabs — let user pick which one
+                  if (projectTabs.length > 1) {
+                    setSessionPicker({
+                      workspace: ws.coderName,
+                      wsDisplay: ws.displayName,
+                      project: proj,
+                      sessions: projectTabs.map((t: TerminalTab) => ({
+                        name: t.tmuxSession || t.title || t.id,
+                        tabId: t.id,
+                        windows: 1,
+                        attached: t.id === useAppStore.getState().activeTerminalId,
+                        isIdle: false,
+                        idleSeconds: 0,
+                      })),
+                    });
+                    return;
+                  }
+
+                  // Single tab — switch to it
+                  if (projectTabs.length === 1) {
+                    setActiveTerminal(projectTabs[0].id);
                     setCurrentView("terminal");
                     return;
                   }
 
-                  // Open terminal tab immediately — Terminal component handles
-                  // tmux session creation/attachment internally
+                  // No tabs — open a new one
                   const id = `term-${Date.now()}`;
-                  console.log(`Sidebar: opening terminal ${id} for ${ws.coderName}:${proj.path}`);
                   addTerminalTab({
                     id,
                     workspace: ws.coderName,
@@ -659,6 +678,7 @@ function Sidebar() {
                     x: e.clientX,
                     y: e.clientY,
                     workspace: ws.coderName,
+                    wsDisplay: ws.displayName,
                     project: proj,
                   });
                 };
@@ -739,9 +759,28 @@ function Sidebar() {
           onClick={() => setContextMenu(null)}
         >
           <div
-            className="absolute bg-base-surface border border-base-border rounded-lg shadow-xl py-1 min-w-[140px]"
+            className="absolute bg-base-surface border border-base-border rounded-lg shadow-xl py-1 min-w-[160px]"
             style={{ left: contextMenu.x, top: contextMenu.y }}
           >
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const id = `term-${Date.now()}`;
+                addTerminalTab({
+                  id,
+                  workspace: contextMenu.workspace,
+                  project: contextMenu.project.path,
+                  title: `${contextMenu.wsDisplay} · ${contextMenu.project.displayName}`,
+                  isActive: true,
+                });
+                setCurrentView("terminal");
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 text-xs text-base-text hover:bg-base-bg transition-colors"
+            >
+              ＋ New Session
+            </button>
+            <div className="border-t border-base-border my-1" />
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -852,7 +891,7 @@ function Sidebar() {
               Sessions for {sessionPicker.project.displayName}
             </h3>
             <p className="text-xs text-base-muted mb-4">
-              Reattach to an existing session or start a new one.
+              Switch to an existing session or start a new one.
             </p>
             <div className="space-y-1.5 mb-4 max-h-[40vh] overflow-y-auto">
               {sessionPicker.sessions.map((s) => {
@@ -866,31 +905,38 @@ function Sidebar() {
 
                 return (
                   <div
-                    key={s.name}
+                    key={s.tabId || s.name}
                     className="flex items-center gap-2 px-3 py-2 rounded bg-base-bg border border-base-border"
                   >
                     <span
                       className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                        s.isIdle ? "bg-base-muted/40" : "bg-accent-green animate-pulse"
+                        s.attached ? "bg-accent-orange" : s.isIdle ? "bg-base-muted/40" : "bg-accent-green animate-pulse"
                       }`}
                     />
                     <button
                       onClick={() => {
-                        const id = `term-${Date.now()}`;
-                        addTerminalTab({
-                          id,
-                          workspace: sessionPicker.workspace,
-                          project: sessionPicker.project.path,
-                          title: `${sessionPicker.wsDisplay} · ${sessionPicker.project.displayName}`,
-                          isActive: true,
-                          tmuxSession: s.name,
-                        });
+                        if (s.tabId) {
+                          // Switch to existing tab
+                          setActiveTerminal(s.tabId);
+                        } else {
+                          // Create new tab for remote tmux session
+                          const id = `term-${Date.now()}`;
+                          addTerminalTab({
+                            id,
+                            workspace: sessionPicker.workspace,
+                            project: sessionPicker.project.path,
+                            title: `${sessionPicker.wsDisplay} · ${sessionPicker.project.displayName}`,
+                            isActive: true,
+                            tmuxSession: s.name,
+                          });
+                        }
                         setCurrentView("terminal");
                         setSessionPicker(null);
                       }}
                       className="text-xs text-base-text hover:text-accent-orange transition-colors truncate text-left flex-1 min-w-0"
                     >
                       {s.name}
+                      {s.attached && <span className="text-accent-orange ml-1">· current</span>}
                     </button>
                     <span className={`text-xs flex-shrink-0 ${s.isIdle ? "text-base-muted" : "text-accent-green"}`}>
                       {idleText}
