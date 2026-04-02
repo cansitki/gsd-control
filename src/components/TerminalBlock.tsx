@@ -263,11 +263,9 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         connectingRef.current = false;
         tw._debug("connected=true");
 
-        // Clear screen content but don't fully reset terminal state —
-        // terminal.reset() can leave WebGL renderer in a bad state
-        tw.terminal.clear();
-        tw.write("\x1b[H\x1b[2J");  // CSI clear screen + home cursor
-        tw.terminal.scrollToBottom();
+        // Don't clear the terminal — tmux will redraw the full screen
+        // when it receives the resize. Clearing here creates empty scrollback
+        // lines that show as a dark gap above the content.
 
         // Fit after connect — force=true ensures resize is sent to tmux
         // even if dims haven't changed since the initial fit
@@ -277,17 +275,14 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
           setTimeout(() => {
             tw._debug("post-connect fit(true) +100ms");
             tw.fit(true);
-            tw.terminal.scrollToBottom();
           }, 100);
           setTimeout(() => {
             tw._debug("post-connect fit(true) +300ms");
             tw.fit(true);
-            tw.terminal.scrollToBottom();
           }, 300);
           setTimeout(() => {
             tw._debug("post-connect fit(true) +1000ms");
             tw.fit(true);
-            tw.terminal.scrollToBottom();
             // Write diagnostic info directly into terminal for visibility
             const el = containerRef.current;
             if (el) {
