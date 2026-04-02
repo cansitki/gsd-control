@@ -132,19 +132,18 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         onResize: (cols, rows) => {
           tw._debug(`onResize → ${cols}x${rows} connected=${connectedRef.current}`);
           if (connectedRef.current) {
-            invoke("terminal_resize", { id: tabId, cols, rows }).catch((e) => {
-              tw._debug(`terminal_resize FAILED: ${e}`);
-            });
-            // Diagnostic: run resize + capture tmux state to see what's happening
+            // 1. Resize the tmux window via SSH exec
+            invoke("terminal_resize", { id: tabId, cols, rows }).catch(() => {});
+            // 2. Fix the client PTY size — SSH allocates a remote PTY at 80x24
+            //    and since we use pipes (no local PTY), SIGWINCH never propagates.
+            //    tmux sizes to the smallest CLIENT, not the window.
+            //    Fix: resize the client's PTY via stty on /proc/<pid>/fd/0,
+            //    then tell tmux to re-read the client size.
             const tmux = sanitizeShellArg(tmuxSessionProp || tmuxSessionName(tabId, project));
-            invoke<string>("exec_in_workspace", {
+            invoke("exec_in_workspace", {
               workspace,
-              command: `echo "=== RESIZE DIAG ===" && tmux display-message -t ${tmux} -p "client_width=#{client_width} client_height=#{client_height} window_width=#{window_width} window_height=#{window_height}" 2>&1 && tmux list-clients -t ${tmux} -F "client=#{client_name} width=#{client_width} height=#{client_height}" 2>&1 && tmux list-windows -t ${tmux} -F "window=#{window_name} width=#{window_width} height=#{window_height}" 2>&1`,
-            }).then((output) => {
-              tw._debug(`tmux-diag: ${output.replace(/\n/g, ' | ')}`);
-            }).catch((e) => {
-              tw._debug(`tmux-diag FAILED: ${e}`);
-            });
+              command: `for pid in $(tmux list-clients -t ${tmux} -F '#{client_pid}' 2>/dev/null); do stty -F /proc/$pid/fd/0 cols ${cols} rows ${rows} 2>/dev/null; done; tmux refresh-client -t ${tmux} 2>/dev/null; true`,
+            }).catch(() => {});
           }
         },
         onClose: () => {
