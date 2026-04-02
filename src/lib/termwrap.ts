@@ -65,6 +65,16 @@ export class TermWrap {
   private disposed = false;
   private _fontLoadHandler: (() => void) | null = null;
 
+  /** Debug log ring buffer — last N fit/resize events */
+  public readonly debugLog: string[] = [];
+  private _debugMaxLines = 40;
+
+  public _debug(msg: string): void {
+    const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+    this.debugLog.push(`${ts} ${msg}`);
+    if (this.debugLog.length > this._debugMaxLines) this.debugLog.shift();
+  }
+
   constructor(elem: HTMLElement, opts: TermWrapOptions = {}) {
     this.opts = opts;
 
@@ -97,6 +107,8 @@ export class TermWrap {
 
     // Open into DOM — must happen before WebGL addon
     this.terminal.open(elem);
+    const rect = elem.getBoundingClientRect();
+    this._debug(`open: container=${Math.round(rect.width)}x${Math.round(rect.height)}`);
 
     // --- WebGL with fallback ---
     // NOTE: WebGL disabled — Tauri's WKWebView on macOS can have WebGL
@@ -119,18 +131,29 @@ export class TermWrap {
     */
 
     // --- Resize via FitAddon only ---
-    this.resizeObserver = new ResizeObserver(() => this.fit());
+    this.resizeObserver = new ResizeObserver((entries) => {
+      const e = entries[0];
+      if (e) {
+        const cr = e.contentRect;
+        this._debug(`ResizeObserver: ${Math.round(cr.width)}x${Math.round(cr.height)}`);
+      }
+      this.fit();
+    });
     this.resizeObserver.observe(elem);
 
     // Initial sizing after fonts are loaded — fit twice to catch font metric changes
     document.fonts.ready.then(() => {
+      this._debug("fonts.ready");
       this.fit(true);
       // Second fit after a frame to pick up any reflow from font swap
       requestAnimationFrame(() => this.fit(true));
     });
 
     // Also listen for individual font loads (catches late-loading webfonts)
-    const onFontLoad = () => this.fit(true);
+    const onFontLoad = () => {
+      this._debug("font loadingdone");
+      this.fit(true);
+    };
     document.fonts.addEventListener("loadingdone", onFontLoad);
     this._fontLoadHandler = onFontLoad;
   }
@@ -189,13 +212,18 @@ export class TermWrap {
       try {
         this.fitAddon.fit();
       } catch {
-        // FitAddon throws if terminal not attached — safe to ignore
+        this._debug("fit: FitAddon threw (not attached?)");
         return;
       }
       const dims: ITerminalDimensions | undefined =
         this.fitAddon.proposeDimensions();
-      if (!dims) return;
-      if (force || dims.cols !== this.lastCols || dims.rows !== this.lastRows) {
+      if (!dims) {
+        this._debug("fit: proposeDimensions returned undefined");
+        return;
+      }
+      const changed = dims.cols !== this.lastCols || dims.rows !== this.lastRows;
+      this._debug(`fit: ${dims.cols}x${dims.rows} was=${this.lastCols}x${this.lastRows} force=${force} changed=${changed}`);
+      if (force || changed) {
         this.lastCols = dims.cols;
         this.lastRows = dims.rows;
         this.opts.onResize?.(dims.cols, dims.rows);

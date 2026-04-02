@@ -36,6 +36,24 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
   const searchInputRef = useRef<HTMLInputElement>(null);
   const lastPasteDataRef = useRef<string>("");
   const lastPasteTimeRef = useRef<number>(0);
+  const [debugLines, setDebugLines] = useState<string[]>([]);
+  const [showDebug, setShowDebug] = useState(true); // ON by default for diagnosis
+  const debugIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Poll TermWrap debug log for the overlay
+  useEffect(() => {
+    if (!showDebug) {
+      if (debugIntervalRef.current) { clearInterval(debugIntervalRef.current); debugIntervalRef.current = null; }
+      return;
+    }
+    debugIntervalRef.current = setInterval(() => {
+      const tw = termWrapRef.current;
+      if (tw && tw.debugLog.length > 0) {
+        setDebugLines([...tw.debugLog]);
+      }
+    }, 300);
+    return () => { if (debugIntervalRef.current) clearInterval(debugIntervalRef.current); };
+  }, [showDebug]);
 
   useEffect(() => {
     updateBlockRef.current = useAppStore.getState().updateBlock;
@@ -130,6 +148,7 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
       tw = new TermWrap(containerRef.current, {
         fontSize: 13,
         onResize: (cols, rows) => {
+          tw._debug(`onResize → ${cols}x${rows} connected=${connectedRef.current}`);
           if (connectedRef.current) {
             invoke("terminal_resize", { id: tabId, cols, rows }).catch(() => {});
           }
@@ -260,6 +279,7 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         if (!mountedRef.current) { connectingRef.current = false; return; }
         connectedRef.current = true;
         connectingRef.current = false;
+        tw._debug("connected=true");
 
         // Clear screen content but don't fully reset terminal state —
         // terminal.reset() can leave WebGL renderer in a bad state
@@ -269,13 +289,15 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         // Fit after connect — force=true ensures resize is sent to tmux
         // even if dims haven't changed since the initial fit
         requestAnimationFrame(() => {
+          tw._debug("post-connect fit(true) RAF");
           tw.fit(true);
           setTimeout(() => {
+            tw._debug("post-connect fit(true) +100ms");
             tw.fit(true);
             tw.terminal.refresh(0, tw.terminal.rows - 1);
           }, 100);
-          setTimeout(() => tw.fit(true), 300);
-          setTimeout(() => tw.fit(true), 1000);
+          setTimeout(() => { tw._debug("post-connect fit(true) +300ms"); tw.fit(true); }, 300);
+          setTimeout(() => { tw._debug("post-connect fit(true) +1000ms"); tw.fit(true); }, 1000);
         });
       } catch (e) {
         connectingRef.current = false;
@@ -301,11 +323,12 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
     });
 
     // --- Window events ---
-    const handleWindowResize = () => tw.fit();
+    const handleWindowResize = () => { tw._debug("window resize"); tw.fit(); };
     window.addEventListener("resize", handleWindowResize);
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible" && termWrapRef.current) {
+        tw._debug("visibilitychange → visible");
         tw.terminal.refresh(0, tw.terminal.rows - 1);
         tw.fit();
       }
@@ -314,6 +337,7 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
 
     const handleFocus = () => {
       if (termWrapRef.current) {
+        tw._debug("window focus");
         tw.terminal.refresh(0, tw.terminal.rows - 1);
         tw.fit();
       }
@@ -359,6 +383,37 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
       className="bg-[#141a14] overflow-hidden"
       onClick={() => setContextMenu(null)}
     >
+      {/* Debug overlay — resize diagnostics */}
+      {showDebug && (
+        <div
+          className="absolute bottom-0 right-0 z-30 max-w-[50%] max-h-[60%] overflow-auto bg-black/90 border border-yellow-500/50 rounded-tl-lg p-2 font-mono text-[9px] leading-tight text-yellow-300 pointer-events-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-1 sticky top-0 bg-black/90">
+            <span className="text-yellow-500 font-bold text-[10px]">FIT DEBUG</span>
+            <button onClick={() => setShowDebug(false)} className="text-yellow-500 hover:text-white ml-2">✕</button>
+          </div>
+          {debugLines.length === 0 ? (
+            <div className="text-yellow-500/50">Waiting for fit events...</div>
+          ) : (
+            debugLines.map((line, i) => (
+              <div key={i} className={line.includes("fit:") ? "text-green-300" : line.includes("ResizeObserver") ? "text-cyan-300" : "text-yellow-300"}>
+                {line}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+      {/* Toggle debug button — small, top-left corner */}
+      {!showDebug && (
+        <button
+          className="absolute bottom-1 right-1 z-30 text-[8px] text-yellow-500/40 hover:text-yellow-500 bg-black/50 rounded px-1"
+          onClick={(e) => { e.stopPropagation(); setShowDebug(true); }}
+        >
+          dbg
+        </button>
+      )}
+
       {/* Search bar */}
       {searchOpen && (
         <div
