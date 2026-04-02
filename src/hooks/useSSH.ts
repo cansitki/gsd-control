@@ -409,7 +409,7 @@ export function useSSH() {
     }
 
     setLastPollTime(Date.now());
-  }, [workspaces, setSession, setWorkspaceHealth, setLastPollTime]);
+  }, [setSession, setWorkspaceHealth, setLastPollTime]);
 
   // Check if all workspaces are unhealthy — triggers reconnect
   const checkHealthAndReconnect = useCallback(async () => {

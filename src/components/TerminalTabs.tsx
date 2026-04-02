@@ -169,6 +169,7 @@ function TerminalTabs() {
   const [showSessions, setShowSessions] = useState(false);
 
   const handleNewTab = () => {
+    if (workspaces.length === 0 || workspaces[0].projects.length === 0) return;
     const ws = workspaces[0];
     const proj = ws.projects[0];
     const id = `term-${Date.now()}`;
