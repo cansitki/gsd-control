@@ -53,9 +53,12 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
       if (!container || !fitAddon || !term) return;
       if (container.offsetWidth === 0 || container.offsetHeight === 0) return;
 
+      const dimsBefore = fitAddon.proposeDimensions();
       fitAddon.fit();
 
       if (term.cols !== lastColsRef.current || term.rows !== lastRowsRef.current) {
+        console.log(`[Terminal ${tabId}] resize: container=${container.offsetWidth}x${container.offsetHeight} ` +
+          `proposed=${dimsBefore?.cols}x${dimsBefore?.rows} → ${term.cols}x${term.rows}`);
         lastColsRef.current = term.cols;
         lastRowsRef.current = term.rows;
         if (connectedRef.current) {
@@ -191,8 +194,19 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
       if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) return false;
       const dims = fitAddon.proposeDimensions();
       if (!dims) return false; // cell size not measured yet
+
+      // Debug: log what FitAddon sees vs container size
+      const parentStyle = window.getComputedStyle(el);
+      console.log(`[Terminal ${tabId}] fit: container=${el.offsetWidth}x${el.offsetHeight} ` +
+        `computedW=${parentStyle.width} proposed=${dims.cols}x${dims.rows} ` +
+        `current=${term.cols}x${term.rows}`);
+
       fitAddon.fit();
       lastColsRef.current = term.cols;
+      lastRowsRef.current = term.rows;
+
+      console.log(`[Terminal ${tabId}] after fit: ${term.cols}x${term.rows}`);
+      return true;
       lastRowsRef.current = term.rows;
       return true;
     };
