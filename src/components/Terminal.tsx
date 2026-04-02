@@ -162,41 +162,7 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
 
       term.writeln(`\x1b[38;5;208mGSD Control Terminal\x1b[0m`);
       term.writeln(`\x1b[38;5;242mWorkspace: ${workspace} · Project: ${project}\x1b[0m`);
-
-      // Wait for SSH connection to be established AND first poll to complete (handles hydration race)
-      let waited = 0;
-      while (waited < 20000) {
-        const state = useAppStore.getState();
-        const status = state.connection.status;
-        const polled = state.lastPollTime > 0;
-        if (status === "connected" && polled) break;
-        // Keep waiting while reconnecting — retries are in progress
-        if (status !== "connected" && status !== "connecting" && status !== "reconnecting") {
-          // Truly failed — stop waiting
-          if (waited > 2000) break;
-        }
-        if (waited === 0) {
-          term.writeln(`\x1b[38;5;242mWaiting for SSH connection...\x1b[0m`);
-          console.log(`Terminal ${tabId}: waiting for SSH connection and first poll...`);
-        }
-        await new Promise((r) => setTimeout(r, 500));
-        waited += 500;
-        if (!mountedRef.current) { connectingRef.current = false; return; }
-      }
-
-      const state = useAppStore.getState();
-      const finalStatus = state.connection.status;
-      const hasPollData = state.lastPollTime > 0;
-      if (finalStatus !== "connected" || !hasPollData) {
-        connectingRef.current = false;
-        const msg = finalStatus !== "connected"
-          ? `SSH not connected (status: ${finalStatus}, error: ${state.connection.error || "none"})`
-          : `SSH connected but no poll data yet (waited ${waited}ms)`;
-        console.error(`Terminal ${tabId}: ${msg}`);
-        term.writeln(`\x1b[38;5;196m${msg}\x1b[0m`);
-        term.writeln(`\x1b[38;5;242mPress any key to retry...\x1b[0m`);
-        return;
-      }
+      term.writeln(`\x1b[38;5;242mConnecting...\x1b[0m`);
 
       try {
         await invoke("terminal_close", { id: tabId }).catch(() => {});
