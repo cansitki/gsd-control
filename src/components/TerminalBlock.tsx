@@ -1,11 +1,8 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { Terminal as XTerm } from "@xterm/xterm";
-import { WebLinksAddon } from "@xterm/addon-web-links";
+import { TermWrap } from "../lib/termwrap";
 import { debugInvoke as invoke } from "../lib/debugInvoke";
-import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "../stores/appStore";
 import { sanitizeShellArg } from "../lib/shell";
-import "@xterm/xterm/css/xterm.css";
 
 interface Props {
   tabId: string;
@@ -24,84 +21,35 @@ interface ContextMenuState {
   y: number;
 }
 
-/**
- * Manually compute cols/rows from container rect and xterm cell dimensions.
- * This bypasses FitAddon entirely — FitAddon's parentElement measurement
- * is unreliable with absolute/relative positioning chains.
- */
-function fitTerminal(
-  term: XTerm,
-  container: HTMLDivElement,
-  tabId: string,
-  connected: boolean,
-  lastCols: React.MutableRefObject<number>,
-  lastRows: React.MutableRefObject<number>,
-) {
-  const core = (term as any)._core;
-  if (!core?._renderService?.dimensions) return;
-
-  const cellWidth = core._renderService.dimensions.css.cell.width;
-  const cellHeight = core._renderService.dimensions.css.cell.height;
-  if (!cellWidth || !cellHeight) return;
-
-  const rect = container.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return;
-
-  // Account for scrollbar width
-  const scrollbarWidth = core.viewport?.scrollBarWidth ?? 0;
-  const cols = Math.max(2, Math.floor((rect.width - scrollbarWidth) / cellWidth));
-  const rows = Math.max(1, Math.floor(rect.height / cellHeight));
-
-  if (cols === term.cols && rows === term.rows) return;
-
-  term.resize(cols, rows);
-  lastCols.current = cols;
-  lastRows.current = rows;
-
-  if (connected) {
-    invoke("terminal_resize", { id: tabId, cols, rows }).catch(() => {});
-  }
-}
-
-function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSessionProp }: Props) {
+function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSessionProp }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<XTerm | null>(null);
+  const termWrapRef = useRef<TermWrap | null>(null);
   const connectedRef = useRef(false);
   const connectingRef = useRef(false);
   const mountedRef = useRef(true);
-  const fitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastColsRef = useRef(0);
-  const lastRowsRef = useRef(0);
   const updateTerminalTabRef = useRef(useAppStore.getState().updateTerminalTab);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     updateTerminalTabRef.current = useAppStore.getState().updateTerminalTab;
   });
 
-  // Debounced fit — used by resize observers and window events
-  const debouncedFit = useCallback(() => {
-    if (fitTimerRef.current) clearTimeout(fitTimerRef.current);
-    fitTimerRef.current = setTimeout(() => {
-      const container = containerRef.current;
-      const term = terminalRef.current;
-      if (!container || !term) return;
-      fitTerminal(term, container, tabId, connectedRef.current, lastColsRef, lastRowsRef);
-    }, 50);
-  }, [tabId]);
-
   // Re-fit when tab becomes visible
   useEffect(() => {
-    if (!visible || !terminalRef.current || !containerRef.current) return;
-    const raf = requestAnimationFrame(() => debouncedFit());
+    if (!visible || !termWrapRef.current) return;
+    const raf = requestAnimationFrame(() => termWrapRef.current?.fit());
     return () => cancelAnimationFrame(raf);
-  }, [visible, debouncedFit]);
+  }, [visible]);
 
   // Copy — xterm selection first, then tmux paste buffer
   const handleCopy = useCallback(async () => {
-    const term = terminalRef.current;
-    if (!term) { setContextMenu(null); return; }
-    const sel = term.getSelection();
+    const tw = termWrapRef.current;
+    if (!tw) { setContextMenu(null); return; }
+    const sel = tw.terminal.getSelection();
     if (sel) {
       navigator.clipboard.writeText(sel).catch(() => {});
       setContextMenu(null);
@@ -128,15 +76,35 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
   }, [tabId]);
 
   const handleSelectAll = useCallback(() => {
-    terminalRef.current?.selectAll();
+    termWrapRef.current?.terminal.selectAll();
     setContextMenu(null);
   }, []);
 
   const handleClear = useCallback(() => {
-    terminalRef.current?.clear();
+    termWrapRef.current?.terminal.clear();
     setContextMenu(null);
   }, []);
 
+  // --- Search handlers ---
+  const handleSearchNext = useCallback(() => {
+    if (searchQuery && termWrapRef.current) {
+      termWrapRef.current.findNext(searchQuery, { caseSensitive });
+    }
+  }, [searchQuery, caseSensitive]);
+
+  const handleSearchPrevious = useCallback(() => {
+    if (searchQuery && termWrapRef.current) {
+      termWrapRef.current.findPrevious(searchQuery, { caseSensitive });
+    }
+  }, [searchQuery, caseSensitive]);
+
+  const handleSearchClose = useCallback(() => {
+    termWrapRef.current?.clearSearch();
+    setSearchOpen(false);
+    setSearchQuery("");
+  }, []);
+
+  // Main terminal lifecycle effect
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -144,73 +112,28 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
     connectedRef.current = false;
     connectingRef.current = false;
 
-    const term = new XTerm({
-      fontFamily: '"JetBrains Mono", "SF Mono", "Fira Code", monospace',
+    const tw = new TermWrap(containerRef.current, {
       fontSize: 13,
-      lineHeight: 1.4,
-      cursorBlink: true,
-      cursorStyle: "block",
-      scrollback: 10000,
-      allowTransparency: false,
-      scrollOnUserInput: true,
-      fastScrollModifier: "alt",
-      convertEol: false,
-      rightClickSelectsWord: true,
-      theme: {
-        background: "#141a14",
-        foreground: "#c8cdd8",
-        cursor: "#f97316",
-        selectionBackground: "rgba(249, 115, 22, 0.3)",
-        black: "#141a14",
-        red: "#ef4444",
-        green: "#34d399",
-        yellow: "#fbbf24",
-        blue: "#60a5fa",
-        magenta: "#c084fc",
-        cyan: "#22d3ee",
-        white: "#c8cdd8",
-        brightBlack: "#5a6478",
-        brightRed: "#f87171",
-        brightGreen: "#6ee7b7",
-        brightYellow: "#fde68a",
-        brightBlue: "#93c5fd",
-        brightMagenta: "#d8b4fe",
-        brightCyan: "#67e8f9",
-        brightWhite: "#f1f5f9",
+      onResize: (cols, rows) => {
+        if (connectedRef.current) {
+          invoke("terminal_resize", { id: tabId, cols, rows }).catch(() => {});
+        }
+      },
+      onClose: () => {
+        if (mountedRef.current) {
+          tw.write("\r\n\x1b[38;5;242m[Connection closed — press any key to reconnect]\x1b[0m");
+          connectedRef.current = false;
+          connectingRef.current = false;
+        }
       },
     });
 
-    term.loadAddon(new WebLinksAddon());
-    term.open(containerRef.current);
-    terminalRef.current = term;
+    termWrapRef.current = tw;
 
-    // --- Fit: retry until cell dimensions are ready ---
-    const doFit = () => {
-      const el = containerRef.current;
-      if (!el || !term) return false;
-      const core = (term as any)._core;
-      const cellW = core?._renderService?.dimensions?.css?.cell?.width;
-      if (!cellW) return false;
-      fitTerminal(term, el, tabId, connectedRef.current, lastColsRef, lastRowsRef);
-      return true;
-    };
+    // Wire Tauri data/close listeners
+    tw.connectToTauri(tabId);
 
-    const retryFit = (n: number, ms: number) => {
-      if (!mountedRef.current || n <= 0) return;
-      if (doFit()) return;
-      setTimeout(() => retryFit(n - 1, ms * 1.5), ms);
-    };
-
-    // Wait for fonts, then retry fit
-    (document.fonts?.ready ?? Promise.resolve()).then(() => {
-      requestAnimationFrame(() => retryFit(15, 30));
-    });
-
-    // Re-fit on font swap
-    const onFontChange = () => debouncedFit();
-    document.fonts?.addEventListener?.("loadingdone", onFontChange);
-
-    // --- Context menu: block native, show custom ---
+    // --- Context menu ---
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -219,10 +142,18 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
     const containerEl = containerRef.current;
     containerEl.addEventListener("contextmenu", handleContextMenu);
 
-    // --- Keyboard: Cmd+C copy, Cmd+V paste ---
+    // --- Keyboard: Cmd+C copy, Cmd+V paste, Cmd+F search ---
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+F / Ctrl+F → open search
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        e.preventDefault();
+        setSearchOpen(true);
+        // Focus will happen via the searchOpen useEffect
+        return;
+      }
+
       if ((e.metaKey || e.ctrlKey) && e.key === "c") {
-        const sel = term.getSelection();
+        const sel = tw.terminal.getSelection();
         if (sel) {
           e.preventDefault();
           navigator.clipboard.writeText(sel).catch(() => {});
@@ -250,19 +181,6 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
     };
     containerEl.addEventListener("keydown", handleKeyDown, true);
 
-    // --- Data listeners ---
-    const unlistenData = listen<number[]>(`terminal_data_${tabId}`, (event) => {
-      if (mountedRef.current) term.write(new Uint8Array(event.payload));
-    });
-
-    const unlistenClose = listen(`terminal_closed_${tabId}`, () => {
-      if (mountedRef.current) {
-        term.writeln("\r\n\x1b[38;5;242m[Connection closed — press any key to reconnect]\x1b[0m");
-        connectedRef.current = false;
-        connectingRef.current = false;
-      }
-    });
-
     // --- Connect ---
     const tmuxName = sanitizeShellArg(tmuxSessionProp || tmuxSessionName(tabId, project));
     const safeProject = sanitizeShellArg(project);
@@ -271,9 +189,9 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
       if (!mountedRef.current || connectingRef.current) return;
       connectingRef.current = true;
 
-      term.writeln(`\x1b[38;5;208mGSD Control Terminal\x1b[0m`);
-      term.writeln(`\x1b[38;5;242mWorkspace: ${workspace} · Project: ${project}\x1b[0m`);
-      term.writeln(`\x1b[38;5;242mConnecting...\x1b[0m`);
+      tw.write(`\x1b[38;5;208mGSD Control Terminal\x1b[0m\r\n`);
+      tw.write(`\x1b[38;5;242mWorkspace: ${workspace} · Project: ${project}\x1b[0m\r\n`);
+      tw.write(`\x1b[38;5;242mConnecting...\x1b[0m\r\n`);
 
       try {
         await invoke("terminal_close", { id: tabId }).catch(() => {});
@@ -284,9 +202,9 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
         });
 
         if (checkResult.trim() === "exists") {
-          term.writeln(`\x1b[38;5;242mReattaching to session: ${tmuxName}\x1b[0m`);
+          tw.write(`\x1b[38;5;242mReattaching to session: ${tmuxName}\x1b[0m\r\n`);
         } else {
-          term.writeln(`\x1b[38;5;242mCreating session: ${tmuxName}\x1b[0m`);
+          tw.write(`\x1b[38;5;242mCreating session: ${tmuxName}\x1b[0m\r\n`);
           await invoke("exec_in_workspace", {
             workspace,
             command: `tmux new-session -d -s ${tmuxName} -c ~/${safeProject}`,
@@ -295,13 +213,12 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
 
         updateTerminalTabRef.current(tabId, { tmuxSession: tmuxName });
 
-        // tmux mouse on for scroll wheel; Shift+drag for xterm selection
         await invoke("exec_in_workspace", {
           workspace,
           command: `tmux set-option -t ${tmuxName} mouse on 2>/dev/null; true`,
         });
 
-        term.writeln("");
+        tw.write("\r\n");
         if (!mountedRef.current) { connectingRef.current = false; return; }
 
         await invoke("terminal_open_tmux", {
@@ -314,28 +231,28 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
         connectedRef.current = true;
         connectingRef.current = false;
 
-        term.reset();
+        tw.terminal.reset();
 
-        // Fit after connect — multiple passes
+        // Fit after connect — TermWrap debounce handles batching
         requestAnimationFrame(() => {
-          doFit();
-          setTimeout(doFit, 100);
-          setTimeout(doFit, 300);
-          setTimeout(doFit, 1000);
+          tw.fit();
+          setTimeout(() => tw.fit(), 100);
+          setTimeout(() => tw.fit(), 300);
+          setTimeout(() => tw.fit(), 1000);
         });
       } catch (e) {
         connectingRef.current = false;
         if (!mountedRef.current) return;
         console.error(`Terminal ${tabId}: connection failed —`, e);
-        term.writeln(`\x1b[38;5;196mConnection failed: ${e}\x1b[0m`);
-        term.writeln(`\x1b[38;5;242mPress any key to retry...\x1b[0m`);
+        tw.write(`\x1b[38;5;196mConnection failed: ${e}\x1b[0m\r\n`);
+        tw.write(`\x1b[38;5;242mPress any key to retry...\x1b[0m\r\n`);
       }
     };
 
     connect();
 
     // --- Input ---
-    term.onData((data) => {
+    tw.handleInput((data) => {
       if (!connectedRef.current) {
         if (!connectingRef.current) connect();
         return;
@@ -346,48 +263,60 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
       invoke("terminal_write", { id: tabId, data: Array.from(encoded) }).catch(() => {});
     });
 
-    // --- Resize observers ---
-    const resizeObserver = new ResizeObserver(() => debouncedFit());
-    resizeObserver.observe(containerEl);
-
-    const handleWindowResize = () => debouncedFit();
+    // --- Window events ---
+    const handleWindowResize = () => tw.fit();
     window.addEventListener("resize", handleWindowResize);
 
-    // Re-render on app resume from minimize
     const handleVisibility = () => {
-      if (document.visibilityState === "visible" && terminalRef.current) {
-        terminalRef.current.refresh(0, terminalRef.current.rows - 1);
-        debouncedFit();
+      if (document.visibilityState === "visible" && termWrapRef.current) {
+        tw.terminal.refresh(0, tw.terminal.rows - 1);
+        tw.fit();
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
 
     const handleFocus = () => {
-      if (terminalRef.current) {
-        terminalRef.current.refresh(0, terminalRef.current.rows - 1);
-        debouncedFit();
+      if (termWrapRef.current) {
+        tw.terminal.refresh(0, tw.terminal.rows - 1);
+        tw.fit();
       }
     };
     window.addEventListener("focus", handleFocus);
 
+    // Re-fit on font swap
+    const onFontChange = () => tw.fit();
+    document.fonts?.addEventListener?.("loadingdone", onFontChange);
+
     return () => {
       mountedRef.current = false;
-      if (fitTimerRef.current) clearTimeout(fitTimerRef.current);
-      resizeObserver.disconnect();
       window.removeEventListener("resize", handleWindowResize);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
       document.fonts?.removeEventListener?.("loadingdone", onFontChange);
       containerEl.removeEventListener("contextmenu", handleContextMenu);
       containerEl.removeEventListener("keydown", handleKeyDown, true);
-      unlistenData.then((fn) => fn());
-      unlistenClose.then((fn) => fn());
       invoke("terminal_close", { id: tabId }).catch(() => {});
-      term.dispose();
-      terminalRef.current = null;
+      tw.dispose();
+      termWrapRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabId, workspace, project, tmuxSessionProp]);
+
+  // Focus search input when search bar opens
+  useEffect(() => {
+    if (searchOpen && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [searchOpen]);
+
+  // Live search as query changes
+  useEffect(() => {
+    if (searchOpen && searchQuery && termWrapRef.current) {
+      termWrapRef.current.findNext(searchQuery, { caseSensitive });
+    } else if (!searchQuery && termWrapRef.current) {
+      termWrapRef.current.clearSearch();
+    }
+  }, [searchQuery, caseSensitive, searchOpen]);
 
   return (
     <div
@@ -396,6 +325,68 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
       className="bg-[#141a14] overflow-hidden"
       onClick={() => setContextMenu(null)}
     >
+      {/* Search bar */}
+      {searchOpen && (
+        <div
+          className="absolute top-0 right-0 z-20 flex items-center gap-1 px-2 py-1 bg-[#1a2020] border border-base-border/50 rounded-bl-lg shadow-lg"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              handleSearchClose();
+            } else if (e.key === "Enter") {
+              e.preventDefault();
+              if (e.shiftKey) {
+                handleSearchPrevious();
+              } else {
+                handleSearchNext();
+              }
+            }
+          }}
+        >
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search…"
+            className="bg-[#141a14] text-xs text-base-text border border-base-border/40 rounded px-2 py-0.5 w-[160px] outline-none focus:border-accent-orange/50 placeholder:text-base-muted/50"
+          />
+          <button
+            onClick={() => setCaseSensitive(!caseSensitive)}
+            className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${
+              caseSensitive
+                ? "border-accent-orange/50 text-accent-orange bg-accent-orange/10"
+                : "border-base-border/40 text-base-muted hover:text-base-text"
+            }`}
+            title="Case sensitive"
+          >
+            Aa
+          </button>
+          <button
+            onClick={handleSearchPrevious}
+            className="text-xs px-1.5 py-0.5 rounded border border-base-border/40 text-base-muted hover:text-base-text transition-colors"
+            title="Previous match (Shift+Enter)"
+          >
+            ▲
+          </button>
+          <button
+            onClick={handleSearchNext}
+            className="text-xs px-1.5 py-0.5 rounded border border-base-border/40 text-base-muted hover:text-base-text transition-colors"
+            title="Next match (Enter)"
+          >
+            ▼
+          </button>
+          <button
+            onClick={handleSearchClose}
+            className="text-xs px-1.5 py-0.5 rounded text-base-muted hover:text-accent-red transition-colors"
+            title="Close (Escape)"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Custom context menu */}
       {contextMenu && (
         <div
@@ -443,4 +434,4 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
   );
 }
 
-export default Terminal;
+export default TerminalBlock;

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { debugInvoke as invoke } from "../lib/debugInvoke";
 import { useAppStore } from "../stores/appStore";
 import { sanitizeShellArg } from "../lib/shell";
-import Terminal from "./Terminal";
+import TerminalBlock from "./TerminalBlock";
 
 interface TmuxSession {
   name: string;
@@ -299,7 +299,7 @@ function TerminalTabs() {
                   </span>
                 </div>
                 <div className="absolute inset-0 pt-[18px]">
-                  <Terminal
+                  <TerminalBlock
                     tabId={tab.id}
                     workspace={tab.workspace}
                     project={tab.project}
@@ -335,7 +335,7 @@ function TerminalTabs() {
                 activeTerminalId === tab.id ? "visible z-[1]" : "invisible z-0"
               }`}
             >
-              <Terminal
+              <TerminalBlock
                 tabId={tab.id}
                 workspace={tab.workspace}
                 project={tab.project}
