@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# verify-terminal.sh — Validates terminal direct-connect and resize changes (S02):
-#   - No polling wait loop in Terminal.tsx
-#   - TerminalSession has workspace/coder_user/tmux_session fields
-#   - resize_terminal sends tmux resize-window via SSH
-#   - open_terminal_tmux stores tmux_session in session
+# verify-terminal.sh — Validates TermWrap + TerminalBlock architecture (M005/S01):
+#   - TermWrap class with xterm addons, WebGL fallback, ResizeObserver, search, dispose
+#   - TerminalBlock component using TermWrap (no hand-rolled sizing)
+#   - TerminalTabs imports TerminalBlock
+#   - No legacy Terminal.tsx, _renderService, or retryFit
+#   - Package deps present
 #   - TypeScript compilation
 # Exit 0 if all checks pass, exit 1 if any fail.
 
@@ -38,51 +39,79 @@ check_not() {
   fi
 }
 
-TERMINAL_TSX="$PROJECT_DIR/src/components/Terminal.tsx"
-TERMINAL_RS="$PROJECT_DIR/src-tauri/src/terminal.rs"
+TERMWRAP="$PROJECT_DIR/src/lib/termwrap.ts"
+TERMINAL_BLOCK="$PROJECT_DIR/src/components/TerminalBlock.tsx"
+TERMINAL_TABS="$PROJECT_DIR/src/components/TerminalTabs.tsx"
+PACKAGE_JSON="$PROJECT_DIR/package.json"
 
-echo "=== Terminal Direct Connect & Resize Verification ==="
+echo "=== TermWrap + TerminalBlock Architecture Verification ==="
 echo ""
 
-echo "── T01: Polling wait removed ──"
-check_not "Terminal.tsx does NOT contain 'while (waited <' polling loop" \
-  grep -q 'while (waited <' "$TERMINAL_TSX"
-check_not "Terminal.tsx does NOT reference lastPollTime in polling gate" \
-  grep -q 'lastPollTime' "$TERMINAL_TSX"
+echo "── TermWrap class (src/lib/termwrap.ts) ──"
+check "Imports FitAddon from @xterm/addon-fit" \
+  grep -q "from ['\"]@xterm/addon-fit['\"]" "$TERMWRAP"
+check "Imports WebglAddon from @xterm/addon-webgl" \
+  grep -q "from ['\"]@xterm/addon-webgl['\"]" "$TERMWRAP"
+check "Imports SearchAddon from @xterm/addon-search" \
+  grep -q "from ['\"]@xterm/addon-search['\"]" "$TERMWRAP"
+check "Imports SerializeAddon from @xterm/addon-serialize" \
+  grep -q "from ['\"]@xterm/addon-serialize['\"]" "$TERMWRAP"
+check "Contains fitAddon.fit() call" \
+  grep -q 'fitAddon.fit()' "$TERMWRAP"
+check "Contains onContextLoss WebGL fallback" \
+  grep -q 'onContextLoss' "$TERMWRAP"
+check_not "Does NOT contain _renderService access" \
+  grep -q '_renderService' "$TERMWRAP"
+check_not "Does NOT contain _core access" \
+  grep -q '_core' "$TERMWRAP"
+check "Contains ResizeObserver" \
+  grep -q 'ResizeObserver' "$TERMWRAP"
+check "Contains dispose() method" \
+  grep -q 'dispose()' "$TERMWRAP"
+check "Contains findNext method" \
+  grep -q 'findNext' "$TERMWRAP"
+check "Contains findPrevious method" \
+  grep -q 'findPrevious' "$TERMWRAP"
 
 echo ""
-echo "── T01: Terminal still invokes resize ──"
-check "Terminal.tsx calls invoke(\"terminal_resize\")" \
-  grep -q 'invoke("terminal_resize"' "$TERMINAL_TSX"
+echo "── TerminalBlock (src/components/TerminalBlock.tsx) ──"
+check "Imports TermWrap from ../lib/termwrap" \
+  grep -q "from ['\"]../lib/termwrap['\"]" "$TERMINAL_BLOCK"
+check "Contains terminal_resize invoke" \
+  grep -q 'terminal_resize' "$TERMINAL_BLOCK"
+check "Contains search UI (findNext)" \
+  grep -q 'findNext' "$TERMINAL_BLOCK"
+check "Contains search state (searchOpen or searchQuery)" \
+  grep -q 'search' "$TERMINAL_BLOCK"
+check_not "Does NOT contain _renderService" \
+  grep -q '_renderService' "$TERMINAL_BLOCK"
+check_not "Does NOT contain retryFit" \
+  grep -q 'retryFit' "$TERMINAL_BLOCK"
 
 echo ""
-echo "── T02: TerminalSession struct fields ──"
-check "TerminalSession has workspace field" \
-  grep -q 'pub workspace: String' "$TERMINAL_RS"
-check "TerminalSession has tmux_session field" \
-  grep -q 'pub tmux_session: Option<String>' "$TERMINAL_RS"
-check "TerminalSession has coder_user field" \
-  grep -q 'pub coder_user: String' "$TERMINAL_RS"
+echo "── TerminalTabs (src/components/TerminalTabs.tsx) ──"
+check "Imports TerminalBlock (not Terminal)" \
+  grep -q 'TerminalBlock' "$TERMINAL_TABS"
+check_not "Does NOT import old Terminal component" \
+  grep -q "from ['\"]./Terminal['\"]" "$TERMINAL_TABS"
 
 echo ""
-echo "── T02: resize_terminal implementation ──"
-check "resize_terminal contains resize-window" \
-  grep -q 'resize-window' "$TERMINAL_RS"
-check "resize_terminal uses real parameter names (not underscored no-op)" \
-  grep -q 'fn resize_terminal' "$TERMINAL_RS"
-# Verify the function uses 'id' not '_id' — non-underscored means the param is used
-check_not "resize_terminal params are NOT underscored (no-op stub)" \
-  grep -q '_id: &str' "$TERMINAL_RS"
+echo "── Negative: legacy code removed ──"
+check_not "Terminal.tsx does NOT exist" \
+  test -f "$PROJECT_DIR/src/components/Terminal.tsx"
+check_not "No file in src/ contains _core._renderService" \
+  grep -rq '_core._renderService' "$PROJECT_DIR/src/"
+check_not "No file in src/ contains retryFit" \
+  grep -rq 'retryFit' "$PROJECT_DIR/src/"
 
 echo ""
-echo "── T02: open_terminal_tmux stores tmux_session ──"
-check "open_terminal_tmux stores tmux_session: Some(...)" \
-  grep -q 'tmux_session: Some(tmux_session' "$TERMINAL_RS"
-
-echo ""
-echo "── T02: open_terminal stores tmux_session: None ──"
-check "open_terminal stores tmux_session: None" \
-  grep -q 'tmux_session: None' "$TERMINAL_RS"
+echo "── Package.json: addon deps ──"
+check "Contains @xterm/addon-webgl" \
+  grep -q '@xterm/addon-webgl' "$PACKAGE_JSON"
+check "Contains @xterm/addon-search" \
+  grep -q '@xterm/addon-search' "$PACKAGE_JSON"
+check "Contains @xterm/addon-serialize" \
+  grep -q '@xterm/addon-serialize' "$PACKAGE_JSON"
 
 echo ""
 echo "── TypeScript compilation ──"
