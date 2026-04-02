@@ -40,3 +40,18 @@ html, body, #root {
   background: rgba(200, 145, 74, 0.3);
   color: #fff;
 }
+
+/* Force xterm to fill its container — !important needed because
+   @xterm/xterm/css/xterm.css may load after this file in Vite's bundle */
+.xterm {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.xterm .xterm-viewport {
+  overflow-y: auto !important;
+}
+
+.xterm .xterm-screen {
+  height: 100% !important;
+}

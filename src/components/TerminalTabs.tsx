@@ -204,7 +204,7 @@ function TerminalTabs() {
     : "";
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
       {/* Tab bar */}
       <div className="flex items-center border-b border-base-border bg-base-surface px-2 flex-shrink-0">
         <div className="flex items-center overflow-x-auto flex-1 min-w-0">
@@ -266,7 +266,7 @@ function TerminalTabs() {
       </div>
 
       {/* Terminal area — takes all remaining space */}
-      <div className="flex-1 min-h-0 relative bg-[#141a14]">
+      <div className="flex-1 min-h-0 min-w-0 relative overflow-hidden bg-[#141a14]">
         {terminalTabs.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">

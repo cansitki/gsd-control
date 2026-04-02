@@ -535,7 +535,7 @@ function Sidebar() {
 
   return (
     <>
-      <aside className="w-56 border-r border-base-border flex flex-col bg-base-surface">
+      <aside className="w-56 flex-shrink-0 border-r border-base-border flex flex-col bg-base-surface">
         {/* Logo */}
         <div className="px-4 py-3 border-b border-base-border">
           <h1 className="text-accent-orange font-bold text-sm tracking-wider">

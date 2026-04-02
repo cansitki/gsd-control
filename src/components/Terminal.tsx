@@ -119,7 +119,7 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Initial fit
+    // Initial fit — two passes to catch layout settling
     requestAnimationFrame(() => {
       const el = containerRef.current;
       if (el && el.offsetWidth > 0 && el.offsetHeight > 0) {
@@ -127,6 +127,15 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
         lastColsRef.current = term.cols;
         lastRowsRef.current = term.rows;
       }
+      // Second pass after CSS/layout fully settles
+      setTimeout(() => {
+        const el2 = containerRef.current;
+        if (el2 && el2.offsetWidth > 0 && el2.offsetHeight > 0) {
+          fitAddon.fit();
+          lastColsRef.current = term.cols;
+          lastRowsRef.current = term.rows;
+        }
+      }, 150);
     });
 
     // Let tmux handle scroll via mouse mode (set during connect).
@@ -263,10 +272,16 @@ function Terminal({ tabId, workspace, project, visible, tmuxSession: tmuxSession
     });
     resizeObserver.observe(containerRef.current);
 
+    // Window resize listener as backup — Tauri window resizes may not
+    // always trigger ResizeObserver synchronously on the container
+    const handleWindowResize = () => debouncedFit();
+    window.addEventListener("resize", handleWindowResize);
+
     return () => {
       mountedRef.current = false;
       if (fitTimerRef.current) clearTimeout(fitTimerRef.current);
       resizeObserver.disconnect();
+      window.removeEventListener("resize", handleWindowResize);
       unlistenData.then((fn) => fn());
       unlistenClose.then((fn) => fn());
       invoke("terminal_close", { id: tabId }).catch(() => {});

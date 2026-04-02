@@ -15,7 +15,7 @@ function StatusBar() {
   );
 
   return (
-    <div className="flex items-center justify-between px-4 py-1.5 border-t border-base-border bg-base-surface text-xs">
+    <div className="flex items-center justify-between px-4 py-1.5 border-t border-base-border bg-base-surface text-xs flex-shrink-0">
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-1.5">
           <span
