@@ -479,9 +479,32 @@ function Sidebar() {
   const setSelectedProject = useAppStore((s) => s.setSelectedProject);
   const connection = useAppStore((s) => s.connection);
   const addTerminalTab = useAppStore((s) => s.addTerminalTab);
-  const terminalTabs = useAppStore((s) => s.terminalTabs);
   const setActiveTerminal = useAppStore((s) => s.setActiveTerminal);
   const removeProject = useAppStore((s) => s.removeProject);
+  const addProject = useAppStore((s) => s.addProject);
+  const [syncing, setSyncing] = useState<string | null>(null);
+
+  /** Discover GSD projects on a workspace and add any missing ones */
+  const handleSyncProjects = async (ws: { coderName: string; displayName: string }) => {
+    if (connection.status !== "connected") return;
+    setSyncing(ws.coderName);
+    try {
+      const output = await invoke<string>("exec_in_workspace", {
+        workspace: ws.coderName,
+        command: "for d in ~/*/; do [ -d \"$d/.gsd\" ] && basename \"$d\"; done 2>/dev/null",
+      });
+      const found = output.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("."));
+      const current = useAppStore.getState().workspaces.find((w) => w.coderName === ws.coderName);
+      const existing = current?.projects.map((p) => p.path) ?? [];
+      const newOnes = found.filter((p) => !existing.includes(p));
+      for (const p of newOnes) {
+        addProject(ws.coderName, { path: p, displayName: p });
+      }
+    } catch {
+      // silent — workspace unreachable
+    }
+    setSyncing(null);
+  };
 
   const [addingTo, setAddingTo] = useState<{
     coderName: string;
@@ -573,6 +596,14 @@ function Sidebar() {
                 <span>{ws.displayName}</span>
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
                   <button
+                    onClick={() => handleSyncProjects(ws)}
+                    disabled={syncing === ws.coderName || connection.status !== "connected"}
+                    className="text-base-muted hover:text-accent-blue w-4 h-4 flex items-center justify-center rounded hover:bg-base-bg disabled:opacity-30"
+                    title="Sync projects from workspace"
+                  >
+                    <span className={`text-xs leading-none ${syncing === ws.coderName ? "animate-spin" : ""}`}>↻</span>
+                  </button>
+                  <button
                     onClick={() =>
                       setAddingTo({
                         coderName: ws.coderName,
@@ -604,11 +635,12 @@ function Sidebar() {
                 const isActive = selectedProject === sessionId;
                 const isRunning = session?.isRunning;
 
-                const handleProjectClick = async () => {
+                const handleProjectClick = () => {
                   setSelectedProject(sessionId);
 
                   // If there's already a tab for this project, just switch to it
-                  const existing = terminalTabs.find(
+                  const tabs = useAppStore.getState().terminalTabs;
+                  const existing = tabs.find(
                     (t: TerminalTab) =>
                       t.workspace === ws.coderName && t.project === proj.path
                   );
@@ -621,6 +653,7 @@ function Sidebar() {
                   // Open terminal tab immediately — Terminal component handles
                   // tmux session creation/attachment internally
                   const id = `term-${Date.now()}`;
+                  console.log(`Sidebar: opening terminal ${id} for ${ws.coderName}:${proj.path}`);
                   addTerminalTab({
                     id,
                     workspace: ws.coderName,
