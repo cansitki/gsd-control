@@ -220,6 +220,7 @@ export class TermWrap {
       // Read xterm's internal cell size and parent computed height for diagnostics
       let cellInfo = "";
       let computedH = 0;
+      let parentChain = "";
       try {
         const core = (this.terminal as any)._core;
         const cssDims = core._renderService.dimensions.css.cell;
@@ -227,6 +228,17 @@ export class TermWrap {
         // This is exactly what FitAddon reads:
         const parentStyle = window.getComputedStyle(this.terminal.element!.parentElement!);
         computedH = parseInt(parentStyle.getPropertyValue("height"));
+        // Walk the parent chain to find where height is lost
+        let el: HTMLElement | null = this.elem;
+        const chain: string[] = [];
+        for (let i = 0; i < 8 && el; i++) {
+          const r = el.getBoundingClientRect();
+          const tag = el.tagName.toLowerCase();
+          const cls = el.className?.toString().slice(0, 30) || "";
+          chain.push(`${tag}(${cls})=${Math.round(r.height)}`);
+          el = el.parentElement;
+        }
+        parentChain = chain.join(" → ");
       } catch { /* older xterm or private API change */ }
       const dims: ITerminalDimensions | undefined =
         this.fitAddon.proposeDimensions();
@@ -248,6 +260,10 @@ export class TermWrap {
         domInfo = `dom: .xterm=${Math.round(xtermRect.height)} .viewport=${vpRect ? Math.round(vpRect.height) : '?'} .screen=${scRect ? Math.round(scRect.height) : '?'}`;
       } catch { /* ignore */ }
       this._debug(`fit: ${dims.cols}x${dims.rows} was=${this.lastCols}x${this.lastRows} ${actual} rect=${Math.round(rect.width)}x${Math.round(rect.height)} computedH=${computedH} ${cellInfo} ${domInfo} force=${force} changed=${changed}`);
+      // Log parent chain on first fit or when height changes by >50px
+      if (this.lastRows === 0 || Math.abs(rect.height - (this.lastRows * 18)) > 50) {
+        this._debug(`parentChain: ${parentChain}`);
+      }
       if (force || changed) {
         this.lastCols = dims.cols;
         this.lastRows = dims.rows;
