@@ -236,7 +236,18 @@ export class TermWrap {
       }
       const changed = dims.cols !== this.lastCols || dims.rows !== this.lastRows;
       const actual = `actual=${this.terminal.cols}x${this.terminal.rows}`;
-      this._debug(`fit: ${dims.cols}x${dims.rows} was=${this.lastCols}x${this.lastRows} ${actual} rect=${Math.round(rect.width)}x${Math.round(rect.height)} computedH=${computedH} ${cellInfo} force=${force} changed=${changed}`);
+      // Measure real DOM element heights for diagnosis
+      let domInfo = "";
+      try {
+        const xtermEl = this.terminal.element!;
+        const viewport = xtermEl.querySelector(".xterm-viewport") as HTMLElement;
+        const screen = xtermEl.querySelector(".xterm-screen") as HTMLElement;
+        const xtermRect = xtermEl.getBoundingClientRect();
+        const vpRect = viewport?.getBoundingClientRect();
+        const scRect = screen?.getBoundingClientRect();
+        domInfo = `dom: .xterm=${Math.round(xtermRect.height)} .viewport=${vpRect ? Math.round(vpRect.height) : '?'} .screen=${scRect ? Math.round(scRect.height) : '?'}`;
+      } catch { /* ignore */ }
+      this._debug(`fit: ${dims.cols}x${dims.rows} was=${this.lastCols}x${this.lastRows} ${actual} rect=${Math.round(rect.width)}x${Math.round(rect.height)} computedH=${computedH} ${cellInfo} ${domInfo} force=${force} changed=${changed}`);
       if (force || changed) {
         this.lastCols = dims.cols;
         this.lastRows = dims.rows;

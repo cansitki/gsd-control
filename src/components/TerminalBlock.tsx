@@ -279,7 +279,25 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
             tw.terminal.refresh(0, tw.terminal.rows - 1);
           }, 100);
           setTimeout(() => { tw._debug("post-connect fit(true) +300ms"); tw.fit(true); }, 300);
-          setTimeout(() => { tw._debug("post-connect fit(true) +1000ms"); tw.fit(true); }, 1000);
+          setTimeout(() => {
+            tw._debug("post-connect fit(true) +1000ms");
+            tw.fit(true);
+            // Write diagnostic info directly into terminal for visibility
+            const el = containerRef.current;
+            if (el) {
+              const rect = el.getBoundingClientRect();
+              const xtermEl = tw.terminal.element;
+              const viewport = xtermEl?.querySelector(".xterm-viewport") as HTMLElement | null;
+              const screen = xtermEl?.querySelector(".xterm-screen") as HTMLElement | null;
+              const xtermH = xtermEl ? Math.round(xtermEl.getBoundingClientRect().height) : "?";
+              const vpH = viewport ? Math.round(viewport.getBoundingClientRect().height) : "?";
+              const scH = screen ? Math.round(screen.getBoundingClientRect().height) : "?";
+              const core = (tw.terminal as any)._core;
+              let cellH = "?";
+              try { cellH = core._renderService.dimensions.css.cell.height.toFixed(1); } catch {}
+              tw.write(`\r\n\x1b[38;5;242m[diag] container=${Math.round(rect.width)}x${Math.round(rect.height)} .xterm=${xtermH} .viewport=${vpH} .screen=${scH} cell.h=${cellH} cols=${tw.terminal.cols} rows=${tw.terminal.rows}\x1b[0m\r\n`);
+            }
+          }, 1000);
         });
       } catch (e) {
         connectingRef.current = false;
