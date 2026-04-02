@@ -263,9 +263,12 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         connectingRef.current = false;
         tw._debug("connected=true");
 
-        // Don't clear the terminal — tmux will redraw the full screen
-        // when it receives the resize. Clearing here creates empty scrollback
-        // lines that show as a dark gap above the content.
+        // Reset terminal to wipe the "Connecting..." header lines from the
+        // buffer. Without this, those lines stay in scrollback and push tmux
+        // content down, creating a gap at the bottom where the last rows of
+        // tmux output are pushed below the visible viewport.
+        // (WebGL is disabled so reset() is safe — no renderer corruption.)
+        tw.terminal.reset();
 
         // Fit after connect — force=true ensures resize is sent to tmux
         // even if dims haven't changed since the initial fit
