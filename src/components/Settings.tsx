@@ -189,8 +189,9 @@ function Settings() {
   // ── Workspace helpers ─────────────────────────────────────────────────
 
   const handleRemoveWorkspace = (coderName: string) => {
+    const current = useAppStore.getState().workspaces;
     useAppStore.setState({
-      workspaces: workspaces.filter((w) => w.coderName !== coderName),
+      workspaces: current.filter((w) => w.coderName !== coderName),
     });
   };
 

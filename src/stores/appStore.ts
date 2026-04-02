@@ -160,13 +160,16 @@ export const useAppStore = create<AppState>()(persist((set) => ({
       activeTerminalId: tab.id,
     })),
   removeTerminalTab: (id) =>
-    set((state) => ({
-      terminalTabs: state.terminalTabs.filter((t) => t.id !== id),
-      activeTerminalId:
-        state.activeTerminalId === id
-          ? state.terminalTabs[0]?.id ?? null
-          : state.activeTerminalId,
-    })),
+    set((state) => {
+      const remaining = state.terminalTabs.filter((t) => t.id !== id);
+      return {
+        terminalTabs: remaining,
+        activeTerminalId:
+          state.activeTerminalId === id
+            ? remaining[0]?.id ?? null
+            : state.activeTerminalId,
+      };
+    }),
   setActiveTerminal: (id) => set({ activeTerminalId: id }),
   updateTerminalTab: (id, updates) =>
     set((state) => ({

@@ -52,6 +52,17 @@ pub fn run() {
                 let _ = window.show();
                 let _ = window.center();
                 let _ = window.set_focus();
+
+                // Hide window on close instead of destroying it.
+                // The tray icon reopens it. This prevents the "stuck" state
+                // where the app process lives but the window is gone.
+                let w = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = w.hide();
+                    }
+                });
             }
 
             let _tray = TrayIconBuilder::new()
