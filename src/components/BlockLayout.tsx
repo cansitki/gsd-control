@@ -264,6 +264,23 @@ function BlockLayout() {
     setShowNewBlockMenu(false);
   };
 
+  const handleNewExplorer = () => {
+    if (workspaces.length === 0 || workspaces[0].projects.length === 0) return;
+    const ws = workspaces[0];
+    const proj = ws.projects[0];
+    const id = `explorer-${Date.now()}`;
+    addBlock({
+      id,
+      type: "explorer",
+      workspace: ws.coderName,
+      project: proj.path,
+      remotePath: `/home/coder/${proj.path}`,
+      title: `📁 ${proj.displayName}`,
+      isActive: true,
+    });
+    setShowNewBlockMenu(false);
+  };
+
   const isGrid = blockLayout !== "tabs";
   const gridCount = isGrid ? parseInt(blockLayout.split("-")[1], 10) : 0;
   const gridBlocks = isGrid ? blocks.slice(0, gridCount) : [];
@@ -327,6 +344,12 @@ function BlockLayout() {
                 >
                   <span className="opacity-60">{BLOCK_ICON.browser}</span> Browser
                 </button>
+                <button
+                  onClick={handleNewExplorer}
+                  className="w-full text-left px-3 py-1.5 text-xs text-base-text hover:bg-base-bg transition-colors flex items-center gap-2"
+                >
+                  <span className="opacity-60">{BLOCK_ICON.explorer}</span> Explorer
+                </button>
               </div>
             )}
           </div>
@@ -376,6 +399,12 @@ function BlockLayout() {
                   className="text-xs text-accent-blue hover:text-accent-blue/80 border border-accent-blue/30 rounded px-3 py-1.5"
                 >
                   Open Browser
+                </button>
+                <button
+                  onClick={handleNewExplorer}
+                  className="text-xs text-accent-green hover:text-accent-green/80 border border-accent-green/30 rounded px-3 py-1.5"
+                >
+                  Open Explorer
                 </button>
               </div>
             </div>

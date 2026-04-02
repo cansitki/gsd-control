@@ -802,6 +802,26 @@ function Sidebar() {
             >
               🌐 Open in Browser
             </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const id = `explorer-${Date.now()}`;
+                addBlock({
+                  id,
+                  type: 'explorer',
+                  workspace: contextMenu.workspace,
+                  project: contextMenu.project.path,
+                  remotePath: `/home/coder/${contextMenu.project.path}`,
+                  title: `📁 ${contextMenu.project.displayName}`,
+                  isActive: true,
+                });
+                setCurrentView("terminal");
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-1.5 text-xs text-base-text hover:bg-base-bg transition-colors"
+            >
+              📁 Open Explorer
+            </button>
             <div className="border-t border-base-border my-1" />
             <button
               onClick={(e) => {
