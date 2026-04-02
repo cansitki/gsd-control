@@ -28,7 +28,7 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
   const connectedRef = useRef(false);
   const connectingRef = useRef(false);
   const mountedRef = useRef(true);
-  const updateTerminalTabRef = useRef(useAppStore.getState().updateTerminalTab);
+  const updateBlockRef = useRef(useAppStore.getState().updateBlock);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -38,7 +38,7 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
   const lastPasteTimeRef = useRef<number>(0);
 
   useEffect(() => {
-    updateTerminalTabRef.current = useAppStore.getState().updateTerminalTab;
+    updateBlockRef.current = useAppStore.getState().updateBlock;
   });
 
   // Re-fit when tab becomes visible
@@ -226,7 +226,7 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
           });
         }
 
-        updateTerminalTabRef.current(tabId, { tmuxSession: tmuxName });
+        updateBlockRef.current(tabId, { tmuxSession: tmuxName });
 
         await invoke("exec_in_workspace", {
           workspace,

@@ -41,7 +41,7 @@ check_not() {
 
 TERMWRAP="$PROJECT_DIR/src/lib/termwrap.ts"
 TERMINAL_BLOCK="$PROJECT_DIR/src/components/TerminalBlock.tsx"
-TERMINAL_TABS="$PROJECT_DIR/src/components/TerminalTabs.tsx"
+BLOCK_LAYOUT="$PROJECT_DIR/src/components/BlockLayout.tsx"
 PACKAGE_JSON="$PROJECT_DIR/package.json"
 
 echo "=== TermWrap + TerminalBlock Architecture Verification ==="
@@ -89,11 +89,11 @@ check_not "Does NOT contain retryFit" \
   grep -q 'retryFit' "$TERMINAL_BLOCK"
 
 echo ""
-echo "── TerminalTabs (src/components/TerminalTabs.tsx) ──"
+echo "── BlockLayout (src/components/BlockLayout.tsx) ──"
 check "Imports TerminalBlock (not Terminal)" \
-  grep -q 'TerminalBlock' "$TERMINAL_TABS"
+  grep -q 'TerminalBlock' "$BLOCK_LAYOUT"
 check_not "Does NOT import old Terminal component" \
-  grep -q "from ['\"]./Terminal['\"]" "$TERMINAL_TABS"
+  grep -q "from ['\"]./Terminal['\"]" "$BLOCK_LAYOUT"
 
 echo ""
 echo "── Negative: legacy code removed ──"

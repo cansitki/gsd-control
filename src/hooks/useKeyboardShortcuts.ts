@@ -85,8 +85,9 @@ export function useKeyboardShortcuts() {
         if (!ws || !ws.projects[0]) return;
         const project = ws.projects[0];
         const id = `${ws.coderName}:${project.path}:${Date.now()}`;
-        store.addTerminalTab({
+        store.addBlock({
           id,
+          type: 'terminal',
           workspace: ws.coderName,
           project: project.path,
           title: project.displayName,
@@ -99,9 +100,9 @@ export function useKeyboardShortcuts() {
       // --- Terminal: Cmd+W — close current tab ---
       if (e.key === "w" && !e.shiftKey) {
         e.preventDefault();
-        const { activeTerminalId, terminalTabs } = store;
-        if (activeTerminalId && terminalTabs.length > 0) {
-          store.removeTerminalTab(activeTerminalId);
+        const { activeBlockId, blocks } = store;
+        if (activeBlockId && blocks.length > 0) {
+          store.removeBlock(activeBlockId);
         }
         return;
       }
@@ -109,23 +110,23 @@ export function useKeyboardShortcuts() {
       // --- Terminal: Cmd+[ / Cmd+] — switch tabs ---
       if (e.key === "[" || e.key === "]") {
         e.preventDefault();
-        const { terminalTabs, activeTerminalId } = store;
-        if (terminalTabs.length < 2 || !activeTerminalId) return;
+        const { blocks, activeBlockId } = store;
+        if (blocks.length < 2 || !activeBlockId) return;
 
-        const currentIdx = terminalTabs.findIndex(
-          (t) => t.id === activeTerminalId
+        const currentIdx = blocks.findIndex(
+          (t) => t.id === activeBlockId
         );
         if (currentIdx === -1) return;
 
         let nextIdx: number;
         if (e.key === "[") {
           nextIdx =
-            currentIdx === 0 ? terminalTabs.length - 1 : currentIdx - 1;
+            currentIdx === 0 ? blocks.length - 1 : currentIdx - 1;
         } else {
           nextIdx =
-            currentIdx === terminalTabs.length - 1 ? 0 : currentIdx + 1;
+            currentIdx === blocks.length - 1 ? 0 : currentIdx + 1;
         }
-        store.setActiveTerminal(terminalTabs[nextIdx].id);
+        store.setActiveBlock(blocks[nextIdx].id);
         return;
       }
 

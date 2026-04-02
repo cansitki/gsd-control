@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { debugInvoke as invoke } from "../lib/debugInvoke";
-import type { GSDSession, TerminalTab } from "../lib/types";
+import type { GSDSession, Block } from "../lib/types";
 import { useAppStore } from "../stores/appStore";
 import { sanitizeShellArg } from "../lib/shell";
 
@@ -13,9 +13,9 @@ function SessionCard({ session }: Props) {
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const workspaces = useAppStore((s) => s.workspaces);
-  const terminalTabs = useAppStore((s) => s.terminalTabs);
-  const addTerminalTab = useAppStore((s) => s.addTerminalTab);
-  const setActiveTerminal = useAppStore((s) => s.setActiveTerminal);
+  const blocks = useAppStore((s) => s.blocks);
+  const addBlock = useAppStore((s) => s.addBlock);
+  const setActiveBlock = useAppStore((s) => s.setActiveBlock);
   const setCurrentView = useAppStore((s) => s.setCurrentView);
 
   const wsConfig = workspaces.find((w) => w.displayName === workspace);
@@ -37,19 +37,20 @@ function SessionCard({ session }: Props) {
   /** Click the card body → open a terminal for this project */
   const handleCardClick = () => {
     // If there's already a tab for this project, switch to it
-    const existing = terminalTabs.find(
-      (t: TerminalTab) => t.workspace === coderName && t.project === project
+    const existing = blocks.find(
+      (t: Block) => t.workspace === coderName && t.project === project
     );
     if (existing) {
-      setActiveTerminal(existing.id);
+      setActiveBlock(existing.id);
       setCurrentView("terminal");
       return;
     }
 
     // Open new terminal tab
     const id = `term-${Date.now()}`;
-    addTerminalTab({
+    addBlock({
       id,
+      type: 'terminal',
       workspace: coderName,
       project,
       title: `${workspace} · ${displayName}`,
@@ -122,8 +123,9 @@ function SessionCard({ session }: Props) {
         tmuxSession,
       });
 
-      addTerminalTab({
+      addBlock({
         id: tabId,
+        type: 'terminal',
         workspace: coderName,
         project,
         title: `${displayName} · tmux:${tmuxSession}`,

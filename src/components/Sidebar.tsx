@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { debugInvoke as invoke } from "../lib/debugInvoke";
 import { useAppStore } from "../stores/appStore";
-import type { ViewMode, TerminalTab } from "../lib/types";
+import type { ViewMode, Block } from "../lib/types";
 import { sanitizeShellArg } from "../lib/shell";
 
 function AddProjectModal({
@@ -467,8 +467,8 @@ function Sidebar() {
   const selectedProject = useAppStore((s) => s.selectedProject);
   const setSelectedProject = useAppStore((s) => s.setSelectedProject);
   const connection = useAppStore((s) => s.connection);
-  const addTerminalTab = useAppStore((s) => s.addTerminalTab);
-  const setActiveTerminal = useAppStore((s) => s.setActiveTerminal);
+  const addBlock = useAppStore((s) => s.addBlock);
+  const setActiveBlock = useAppStore((s) => s.setActiveBlock);
   const removeProject = useAppStore((s) => s.removeProject);
   const addProject = useAppStore((s) => s.addProject);
   const [syncing, setSyncing] = useState<string | null>(null);
@@ -629,9 +629,9 @@ function Sidebar() {
                   setSelectedProject(sessionId);
 
                   // Check how many terminal tabs exist for this project
-                  const tabs = useAppStore.getState().terminalTabs;
+                  const tabs = useAppStore.getState().blocks;
                   const projectTabs = tabs.filter(
-                    (t: TerminalTab) =>
+                    (t: Block) =>
                       t.workspace === ws.coderName && t.project === proj.path
                   );
 
@@ -641,11 +641,11 @@ function Sidebar() {
                       workspace: ws.coderName,
                       wsDisplay: ws.displayName,
                       project: proj,
-                      sessions: projectTabs.map((t: TerminalTab) => ({
+                      sessions: projectTabs.map((t: Block) => ({
                         name: t.tmuxSession || t.title || t.id,
                         tabId: t.id,
                         windows: 1,
-                        attached: t.id === useAppStore.getState().activeTerminalId,
+                        attached: t.id === useAppStore.getState().activeBlockId,
                         isIdle: false,
                         idleSeconds: 0,
                       })),
@@ -655,15 +655,16 @@ function Sidebar() {
 
                   // Single tab — switch to it
                   if (projectTabs.length === 1) {
-                    setActiveTerminal(projectTabs[0].id);
+                    setActiveBlock(projectTabs[0].id);
                     setCurrentView("terminal");
                     return;
                   }
 
                   // No tabs — open a new one
                   const id = `term-${Date.now()}`;
-                  addTerminalTab({
+                  addBlock({
                     id,
+                    type: 'terminal',
                     workspace: ws.coderName,
                     project: proj.path,
                     title: `${ws.displayName} · ${proj.displayName}`,
@@ -766,8 +767,9 @@ function Sidebar() {
               onClick={(e) => {
                 e.stopPropagation();
                 const id = `term-${Date.now()}`;
-                addTerminalTab({
+                addBlock({
                   id,
+                  type: 'terminal',
                   workspace: contextMenu.workspace,
                   project: contextMenu.project.path,
                   title: `${contextMenu.wsDisplay} · ${contextMenu.project.displayName}`,
@@ -917,12 +919,13 @@ function Sidebar() {
                       onClick={() => {
                         if (s.tabId) {
                           // Switch to existing tab
-                          setActiveTerminal(s.tabId);
+                          setActiveBlock(s.tabId);
                         } else {
                           // Create new tab for remote tmux session
                           const id = `term-${Date.now()}`;
-                          addTerminalTab({
+                          addBlock({
                             id,
+                            type: 'terminal',
                             workspace: sessionPicker.workspace,
                             project: sessionPicker.project.path,
                             title: `${sessionPicker.wsDisplay} · ${sessionPicker.project.displayName}`,
@@ -985,8 +988,9 @@ function Sidebar() {
               <button
                 onClick={() => {
                   const id = `term-${Date.now()}`;
-                  addTerminalTab({
+                  addBlock({
                     id,
+                    type: 'terminal',
                     workspace: sessionPicker.workspace,
                     project: sessionPicker.project.path,
                     title: `${sessionPicker.wsDisplay} · ${sessionPicker.project.displayName}`,
