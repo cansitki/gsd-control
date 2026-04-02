@@ -124,8 +124,6 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
     connectingRef.current = false;
     // Track intentional close to suppress stale close events from our own terminal_close call
     let intentionalClose = false;
-    // Track the tmux session name for resize-window commands
-    let activeTmuxName: string | null = null;
 
     let tw: TermWrap;
     try {
@@ -135,14 +133,6 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
           tw._debug(`onResize → ${cols}x${rows} connected=${connectedRef.current}`);
           if (connectedRef.current) {
             invoke("terminal_resize", { id: tabId, cols, rows }).catch(() => {});
-            // Force tmux to adopt the new size — without this, tmux constrains
-            // to the smallest attached client (may be stale from previous attach)
-            if (activeTmuxName) {
-              invoke("exec_in_workspace", {
-                workspace,
-                command: `tmux resize-window -t ${sanitizeShellArg(activeTmuxName)} -A 2>/dev/null; true`,
-              }).catch(() => {});
-            }
           }
         },
         onClose: () => {
@@ -253,7 +243,6 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         }
 
         updateBlockRef.current(tabId, { tmuxSession: tmuxName });
-        activeTmuxName = tmuxName;
 
         await invoke("exec_in_workspace", {
           workspace,
