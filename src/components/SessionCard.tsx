@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { GSDSession } from "../lib/types";
+import type { GSDSession, TerminalTab } from "../lib/types";
 import { useAppStore } from "../stores/appStore";
 import { sanitizeShellArg } from "../lib/shell";
 
@@ -13,7 +13,9 @@ function SessionCard({ session }: Props) {
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const workspaces = useAppStore((s) => s.workspaces);
+  const terminalTabs = useAppStore((s) => s.terminalTabs);
   const addTerminalTab = useAppStore((s) => s.addTerminalTab);
+  const setActiveTerminal = useAppStore((s) => s.setActiveTerminal);
   const setCurrentView = useAppStore((s) => s.setCurrentView);
 
   const wsConfig = workspaces.find((w) => w.displayName === workspace);
@@ -22,6 +24,30 @@ function SessionCard({ session }: Props) {
   const showError = (msg: string) => {
     setError(msg);
     setTimeout(() => setError(null), 5000);
+  };
+
+  /** Click the card body → open a terminal for this project */
+  const handleCardClick = () => {
+    // If there's already a tab for this project, switch to it
+    const existing = terminalTabs.find(
+      (t: TerminalTab) => t.workspace === coderName && t.project === project
+    );
+    if (existing) {
+      setActiveTerminal(existing.id);
+      setCurrentView("terminal");
+      return;
+    }
+
+    // Open new terminal tab
+    const id = `term-${Date.now()}`;
+    addTerminalTab({
+      id,
+      workspace: coderName,
+      project,
+      title: `${workspace} · ${displayName}`,
+      isActive: true,
+    });
+    setCurrentView("terminal");
   };
 
   const handleStartAuto = async () => {
@@ -103,8 +129,10 @@ function SessionCard({ session }: Props) {
   };
 
   return (
-    <div className="bg-base-surface border border-base-border rounded-lg p-4 hover:border-accent-orange/30 transition-colors">
-      {/* Header */}
+    <div
+      onClick={handleCardClick}
+      className="bg-base-surface border border-base-border rounded-lg p-4 hover:border-accent-orange/30 transition-colors cursor-pointer"
+    >  {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span
@@ -233,8 +261,8 @@ function SessionCard({ session }: Props) {
         </div>
       )}
 
-      {/* Action buttons */}
-      <div className="mt-3 flex items-center gap-2">
+      {/* Action buttons — stopPropagation so they don't trigger card click */}
+      <div className="mt-3 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
         {isRunning && status.autoMode ? (
           <>
             <span className="text-xs px-1.5 py-0.5 rounded bg-accent-green/10 text-accent-green font-medium">
