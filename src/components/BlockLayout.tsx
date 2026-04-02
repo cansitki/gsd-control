@@ -196,6 +196,7 @@ function renderBlock(block: Block, visible: boolean) {
           blockId={block.id}
           visible={visible}
           remotePath={block.remotePath}
+          workspace={block.workspace}
         />
       );
   }
