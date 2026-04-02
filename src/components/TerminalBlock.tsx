@@ -3,6 +3,7 @@ import { TermWrap } from "../lib/termwrap";
 import { debugInvoke as invoke } from "../lib/debugInvoke";
 import { useAppStore } from "../stores/appStore";
 import { sanitizeShellArg } from "../lib/shell";
+import { saveTerminalState, getTerminalState } from "../lib/terminalStateCache";
 
 interface Props {
   tabId: string;
@@ -33,6 +34,8 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
   const [searchQuery, setSearchQuery] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const lastPasteDataRef = useRef<string>("");
+  const lastPasteTimeRef = useRef<number>(0);
 
   useEffect(() => {
     updateTerminalTabRef.current = useAppStore.getState().updateTerminalTab;
@@ -65,15 +68,23 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
     setContextMenu(null);
   }, [workspace]);
 
+  // Paste dedup helper — prevents double-sends from xterm + keyboard handler
+  const sendPaste = useCallback((text: string) => {
+    if (!text || !connectedRef.current) return;
+    if (text === lastPasteDataRef.current && Date.now() - lastPasteTimeRef.current < 500) return;
+    lastPasteDataRef.current = text;
+    lastPasteTimeRef.current = Date.now();
+    const encoded = new TextEncoder().encode(text);
+    invoke("terminal_write", { id: tabId, data: Array.from(encoded) }).catch(() => {});
+  }, [tabId]);
+
   // Paste
   const handlePaste = useCallback(() => {
     navigator.clipboard.readText().then((text) => {
-      if (!text || !connectedRef.current) return;
-      const encoded = new TextEncoder().encode(text);
-      invoke("terminal_write", { id: tabId, data: Array.from(encoded) }).catch(() => {});
+      sendPaste(text);
     }).catch(() => {});
     setContextMenu(null);
-  }, [tabId]);
+  }, [sendPaste]);
 
   const handleSelectAll = useCallback(() => {
     termWrapRef.current?.terminal.selectAll();
@@ -130,6 +141,12 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
 
     termWrapRef.current = tw;
 
+    // Restore cached terminal state (from previous mount) before Tauri connection
+    const cachedState = getTerminalState(tabId);
+    if (cachedState) {
+      tw.restoreState(cachedState);
+    }
+
     // Wire Tauri data/close listeners
     tw.connectToTauri(tabId);
 
@@ -173,9 +190,7 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
       if ((e.metaKey && e.key === "v") || (e.ctrlKey && e.shiftKey && e.key === "V")) {
         e.preventDefault();
         navigator.clipboard.readText().then((text) => {
-          if (!text || !connectedRef.current) return;
-          const encoded = new TextEncoder().encode(text);
-          invoke("terminal_write", { id: tabId, data: Array.from(encoded) }).catch(() => {});
+          sendPaste(text);
         }).catch(() => {});
       }
     };
@@ -296,6 +311,8 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
       containerEl.removeEventListener("contextmenu", handleContextMenu);
       containerEl.removeEventListener("keydown", handleKeyDown, true);
       invoke("terminal_close", { id: tabId }).catch(() => {});
+      // Save terminal buffer before disposal so it can be restored on remount
+      saveTerminalState(tabId, tw.serialize());
       tw.dispose();
       termWrapRef.current = null;
     };

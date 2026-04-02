@@ -196,6 +196,20 @@ export class TermWrap {
     this.searchAddon.clearDecorations();
   }
 
+  // ── Serialize / Restore ───────────────────────────────────────────
+
+  /** Serialize the terminal buffer via SerializeAddon. Returns empty string if disposed. */
+  serialize(): string {
+    if (this.disposed) return "";
+    return this.serializeAddon.serialize();
+  }
+
+  /** Write previously serialized data back into the terminal (before Tauri connection). */
+  restoreState(data: string): void {
+    if (this.disposed) return;
+    this.terminal.write(data);
+  }
+
   // ── Disposal ────────────────────────────────────────────────────────
 
   dispose(): void {
