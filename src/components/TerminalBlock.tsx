@@ -244,17 +244,11 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
 
         updateBlockRef.current(tabId, { tmuxSession: tmuxName });
 
+        // Detach stale tmux clients and disable aggressive-resize so our
+        // resize-window -x -y commands aren't overridden by other clients
         await invoke("exec_in_workspace", {
           workspace,
-          command: `tmux set-option -t ${tmuxName} mouse on 2>/dev/null; true`,
-        });
-
-        // Force tmux to resize to the latest client — without this, tmux
-        // constrains the window to the smallest attached client's size,
-        // which may be stale from a previous connection.
-        await invoke("exec_in_workspace", {
-          workspace,
-          command: `tmux set-option -t ${tmuxName} aggressive-resize on 2>/dev/null; tmux resize-window -t ${tmuxName} -A 2>/dev/null; true`,
+          command: `tmux set-option -t ${tmuxName} mouse on 2>/dev/null; tmux set-option -t ${tmuxName} aggressive-resize off 2>/dev/null; true`,
         });
 
         tw.write("\r\n");
@@ -309,11 +303,6 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
               try { cellH = core._renderService.dimensions.css.cell.height.toFixed(1); } catch {}
               tw.write(`\r\n\x1b[38;5;242m[diag] container=${Math.round(rect.width)}x${Math.round(rect.height)} .xterm=${xtermH} .viewport=${vpH} .screen=${scH} cell.h=${cellH} cols=${tw.terminal.cols} rows=${tw.terminal.rows}\x1b[0m\r\n`);
             }
-            // Force tmux to resize its window to match the current client
-            invoke("exec_in_workspace", {
-              workspace,
-              command: `tmux resize-window -t ${tmuxName} -A 2>/dev/null; true`,
-            }).catch(() => {});
           }, 1000);
         });
       } catch (e) {

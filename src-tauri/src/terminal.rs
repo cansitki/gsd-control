@@ -205,7 +205,16 @@ pub async fn resize_terminal(
 
     // Only send resize for tmux sessions — plain SSH has no remote resize mechanism
     if let Some(tmux_name) = tmux_session {
-        let cmd = format!("tmux resize-window -t {} -x {} -y {}", tmux_name, cols, rows);
+        // Resize the specific tmux window AND all windows in the session.
+        // The tmux attached via SSH pipe doesn't propagate SIGWINCH (no local PTY),
+        // so we explicitly set the window size via tmux command.
+        let cmd = format!(
+            "tmux resize-window -t {} -x {} -y {} 2>/dev/null; \
+             tmux list-windows -t {} -F '#{{window_id}}' 2>/dev/null | while read w; do \
+               tmux resize-window -t \"$w\" -x {} -y {} 2>/dev/null; \
+             done; true",
+            tmux_name, cols, rows, tmux_name, cols, rows
+        );
         crate::ssh::exec_in_workspace_direct(&workspace, &coder_user, &cmd)
             .await
             .map_err(|e| format!("tmux resize failed: {}", e))?;
