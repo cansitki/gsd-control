@@ -43,7 +43,7 @@ check_not() {
 
 COST_HISTORY="$PROJECT_DIR/src/hooks/useCostHistory.ts"
 USE_SSH="$PROJECT_DIR/src/hooks/useSSH.ts"
-TERMINAL_TABS="$PROJECT_DIR/src/components/TerminalTabs.tsx"
+TERMINAL_TABS="$PROJECT_DIR/src/components/BlockLayout.tsx"
 DASHBOARD="$PROJECT_DIR/src/components/Dashboard.tsx"
 STATUS_BAR="$PROJECT_DIR/src/components/StatusBar.tsx"
 SESSION_CARD="$PROJECT_DIR/src/components/SessionCard.tsx"
@@ -57,7 +57,7 @@ check "Promise.allSettled in useCostHistory" \
   grep -q 'Promise.allSettled' "$COST_HISTORY"
 check "Promise.allSettled in useSSH fetchGSDData" \
   grep -q 'Promise.allSettled' "$USE_SSH"
-check "Promise.allSettled in TerminalTabs" \
+check "Promise.allSettled in BlockLayout" \
   grep -q 'Promise.allSettled' "$TERMINAL_TABS"
 
 # --- Map-based fill ---

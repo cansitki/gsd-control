@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # verify-debug.sh — Validates the two-level debug system from M004/S04:
 #   - DebugLevel type exported from types.ts
-#   - appStore has debugLevel state, action, partialize, version 3, migration
+#   - appStore has debugLevel state, action, partialize, version 4, migration
 #   - debugInvoke wrapper with secret redaction
 #   - useDebugLogger gated by debugLevel (not always-on)
 #   - No raw invoke imports in components/ or hooks/
@@ -74,8 +74,8 @@ check "setDebugLevel action in store" \
   rg 'setDebugLevel:' "$APP_STORE"
 check "debugLevel in partialize block" \
   rg 'partialize' "$APP_STORE"
-check "version: 3 in persist config" \
-  rg 'version:\s*3' "$APP_STORE"
+check "version: 4 in persist config" \
+  rg 'version:\s*4' "$APP_STORE"
 check "migrate function references debugLevel" \
   rg 'migrate' "$APP_STORE"
 

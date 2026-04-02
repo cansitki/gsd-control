@@ -47,7 +47,7 @@ DEBUG_LOGGER="$PROJECT_DIR/src/hooks/useDebugLogger.ts"
 SETTINGS="$PROJECT_DIR/src/components/Settings.tsx"
 SIDEBAR="$PROJECT_DIR/src/components/Sidebar.tsx"
 SESSION_CARD="$PROJECT_DIR/src/components/SessionCard.tsx"
-APP_STORE="$PROJECT_DIR/src/stores/appStore.ts"
+DEBUG_LOG_BUFFER="$PROJECT_DIR/src/lib/debugLogBuffer.ts"
 
 echo "=== Interaction Fixes Verification ==="
 echo ""
@@ -75,10 +75,10 @@ check_not "useDebugLogger does NOT reference debugEnabled" \
   grep -q 'debugEnabled' "$DEBUG_LOGGER"
 check_not "Settings does NOT contain setDebugEnabled" \
   grep -q 'setDebugEnabled' "$SETTINGS"
-check "appStore has addDebugLog" \
-  grep -q 'addDebugLog' "$APP_STORE"
-check "appStore has clearDebugLogs" \
-  grep -q 'clearDebugLogs' "$APP_STORE"
+check "debugLogBuffer has addDebugLog" \
+  grep -q 'addDebugLog' "$DEBUG_LOG_BUFFER"
+check "debugLogBuffer has clearDebugLogs" \
+  grep -q 'clearDebugLogs' "$DEBUG_LOG_BUFFER"
 
 # --- Frontend: Settings cleanup ---
 echo ""

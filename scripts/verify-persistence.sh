@@ -4,7 +4,7 @@
 #   - Persist config has migrate function
 #   - No raw setState workspace mutations in components
 #   - fetchGSDData reads workspaces from getState() (no stale closure)
-#   - TerminalTabs handleNewTab has null guard
+#   - BlockLayout handleNewTab has null guard
 #   - TypeScript compilation
 # Exit 0 if all checks pass, exit 1 if any fail.
 
@@ -45,7 +45,7 @@ SIDEBAR="$PROJECT_DIR/src/components/Sidebar.tsx"
 SETTINGS="$PROJECT_DIR/src/components/Settings.tsx"
 SETUP="$PROJECT_DIR/src/components/Setup.tsx"
 USE_SSH="$PROJECT_DIR/src/hooks/useSSH.ts"
-TERMINAL_TABS="$PROJECT_DIR/src/components/TerminalTabs.tsx"
+TERMINAL_TABS="$PROJECT_DIR/src/components/BlockLayout.tsx"
 
 echo "=== Zustand Persistence & State Fixes Verification ==="
 echo ""
@@ -93,7 +93,7 @@ check "fetchGSDData reads workspaces from getState()" \
 
 # --- TerminalTabs: null guard ---
 echo ""
-echo "TerminalTabs — null guard:"
+echo "BlockLayout — null guard:"
 check "handleNewTab has workspaces length guard" \
   grep -q 'workspaces\.length === 0' "$TERMINAL_TABS"
 

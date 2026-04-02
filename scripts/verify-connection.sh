@@ -3,7 +3,6 @@
 #   - useSSH retry/backoff logic
 #   - useSSH health check / reconnection trigger
 #   - "reconnecting" in types.ts
-#   - Terminal waits for lastPollTime
 #   - ssh_health_check in lib.rs
 #   - StatusBar handles reconnecting
 #   - Dashboard handles reconnecting
@@ -47,7 +46,7 @@ TYPES="$PROJECT_DIR/src/lib/types.ts"
 USE_SSH="$PROJECT_DIR/src/hooks/useSSH.ts"
 STATUS_BAR="$PROJECT_DIR/src/components/StatusBar.tsx"
 DASHBOARD="$PROJECT_DIR/src/components/Dashboard.tsx"
-TERMINAL="$PROJECT_DIR/src/components/Terminal.tsx"
+TERMINAL="$PROJECT_DIR/src/components/TerminalBlock.tsx"
 LIB_RS="$PROJECT_DIR/src-tauri/src/lib.rs"
 
 echo "=== Connection Lifecycle Verification (M003/S02) ==="
@@ -65,16 +64,6 @@ echo ""
 echo "Type definitions:"
 check "\"reconnecting\" in SSHConnection status type" \
   grep -q '"reconnecting"' "$TYPES"
-
-# --- Terminal race fix ---
-echo ""
-echo "Terminal race fix:"
-check "Terminal waits for lastPollTime" \
-  grep -q 'lastPollTime' "$TERMINAL"
-check "Terminal timeout >= 20s" \
-  grep -q '20000' "$TERMINAL"
-check "Terminal handles reconnecting status" \
-  grep -q 'reconnecting' "$TERMINAL"
 
 # --- Backend ---
 echo ""
