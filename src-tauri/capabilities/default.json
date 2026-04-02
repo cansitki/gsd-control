@@ -20,6 +20,13 @@
     "core:event:allow-listen",
     "updater:default",
     "process:allow-restart",
-    "core:path:default"
+    "core:path:default",
+    "core:webview:allow-create-webview",
+    "core:webview:allow-set-webview-position",
+    "core:webview:allow-set-webview-size",
+    "core:webview:allow-webview-close",
+    "core:webview:allow-webview-hide",
+    "core:webview:allow-webview-show",
+    "core:webview:allow-set-webview-focus"
   ]
 }
