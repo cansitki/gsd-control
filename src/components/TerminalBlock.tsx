@@ -44,7 +44,7 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
   // Re-fit when tab becomes visible
   useEffect(() => {
     if (!visible || !termWrapRef.current) return;
-    const raf = requestAnimationFrame(() => termWrapRef.current?.fit());
+    const raf = requestAnimationFrame(() => termWrapRef.current?.fit(true));
     return () => cancelAnimationFrame(raf);
   }, [visible]);
 
@@ -266,16 +266,16 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         tw.terminal.clear();
         tw.write("\x1b[H\x1b[2J");  // CSI clear screen + home cursor
 
-        // Fit after connect — TermWrap debounce handles batching
+        // Fit after connect — force=true ensures resize is sent to tmux
+        // even if dims haven't changed since the initial fit
         requestAnimationFrame(() => {
-          tw.fit();
-          // Force a full visual refresh after fit to kick the WebGL renderer
+          tw.fit(true);
           setTimeout(() => {
-            tw.fit();
+            tw.fit(true);
             tw.terminal.refresh(0, tw.terminal.rows - 1);
           }, 100);
-          setTimeout(() => tw.fit(), 300);
-          setTimeout(() => tw.fit(), 1000);
+          setTimeout(() => tw.fit(true), 300);
+          setTimeout(() => tw.fit(true), 1000);
         });
       } catch (e) {
         connectingRef.current = false;
@@ -320,16 +320,11 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
     };
     window.addEventListener("focus", handleFocus);
 
-    // Re-fit on font swap
-    const onFontChange = () => tw.fit();
-    document.fonts?.addEventListener?.("loadingdone", onFontChange);
-
     return () => {
       mountedRef.current = false;
       window.removeEventListener("resize", handleWindowResize);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
-      document.fonts?.removeEventListener?.("loadingdone", onFontChange);
       containerEl.removeEventListener("contextmenu", handleContextMenu);
       containerEl.removeEventListener("keydown", handleKeyDown, true);
       invoke("terminal_close", { id: tabId }).catch(() => {});

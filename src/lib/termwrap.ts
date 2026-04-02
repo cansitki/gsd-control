@@ -63,6 +63,7 @@ export class TermWrap {
   private lastRows = 0;
   private unlisteners: Array<Promise<() => void>> = [];
   private disposed = false;
+  private _fontLoadHandler: (() => void) | null = null;
 
   constructor(elem: HTMLElement, opts: TermWrapOptions = {}) {
     this.opts = opts;
@@ -121,8 +122,17 @@ export class TermWrap {
     this.resizeObserver = new ResizeObserver(() => this.fit());
     this.resizeObserver.observe(elem);
 
-    // Initial sizing after fonts are loaded
-    document.fonts.ready.then(() => this.fit());
+    // Initial sizing after fonts are loaded — fit twice to catch font metric changes
+    document.fonts.ready.then(() => {
+      this.fit(true);
+      // Second fit after a frame to pick up any reflow from font swap
+      requestAnimationFrame(() => this.fit(true));
+    });
+
+    // Also listen for individual font loads (catches late-loading webfonts)
+    const onFontLoad = () => this.fit(true);
+    document.fonts.addEventListener("loadingdone", onFontLoad);
+    this._fontLoadHandler = onFontLoad;
   }
 
   // ── Tauri event wiring ──────────────────────────────────────────────
@@ -166,8 +176,12 @@ export class TermWrap {
 
   // ── Fit (debounced) ─────────────────────────────────────────────────
 
-  /** Debounced fit — calls FitAddon.fit() then fires onResize if dims changed. */
-  fit(): void {
+  /**
+   * Debounced fit — calls FitAddon.fit() then fires onResize if dims changed.
+   * Pass force=true to send resize even if dims appear unchanged (e.g. after
+   * font swap where character metrics changed but container size didn't).
+   */
+  fit(force = false): void {
     if (this.disposed) return;
     if (this.fitTimer) clearTimeout(this.fitTimer);
     this.fitTimer = setTimeout(() => {
@@ -181,7 +195,7 @@ export class TermWrap {
       const dims: ITerminalDimensions | undefined =
         this.fitAddon.proposeDimensions();
       if (!dims) return;
-      if (dims.cols !== this.lastCols || dims.rows !== this.lastRows) {
+      if (force || dims.cols !== this.lastCols || dims.rows !== this.lastRows) {
         this.lastCols = dims.cols;
         this.lastRows = dims.rows;
         this.opts.onResize?.(dims.cols, dims.rows);
@@ -224,6 +238,10 @@ export class TermWrap {
     this.disposed = true;
 
     this.resizeObserver.disconnect();
+    if (this._fontLoadHandler) {
+      document.fonts.removeEventListener("loadingdone", this._fontLoadHandler);
+      this._fontLoadHandler = null;
+    }
     if (this.fitTimer) {
       clearTimeout(this.fitTimer);
       this.fitTimer = null;
