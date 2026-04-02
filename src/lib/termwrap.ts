@@ -252,6 +252,9 @@ export class TermWrap {
         this.lastCols = dims.cols;
         this.lastRows = dims.rows;
         this.opts.onResize?.(dims.cols, dims.rows);
+        // Scroll to bottom when terminal grows — prevents empty scrollback
+        // from showing above content
+        this.terminal.scrollToBottom();
       }
       // Schedule a settle fit — if no more resize events arrive within 250ms,
       // do one final force-fit to catch any animation that ended between the
@@ -268,6 +271,9 @@ export class TermWrap {
           this.lastRows = d.rows;
           this.opts.onResize?.(d.cols, d.rows);
         }
+        // Always scroll to bottom after resize settles — prevents empty
+        // scrollback from showing above content when terminal grows
+        this.terminal.scrollToBottom();
       }, 250);
     }, 50);
   }
