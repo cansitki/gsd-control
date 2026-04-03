@@ -183,14 +183,42 @@ function buildLocalStatus() {
     return `*${WORKSPACE}*\n\nNo GSD projects found.`;
   }
 
-  let msg = `*${WORKSPACE}*\n`;
-
-  for (const proj of projects) {
+  // Collect project tuples with computed state
+  const entries = projects.map((proj) => {
     const stateMd = readFileOrNull(path.join(proj.gsdDir, "STATE.md"));
     const state = parseStateMd(stateMd);
     const auto = getGSDAutoStatus(proj.name, proj.gsdDir);
-
     const isRunning = auto.status === "running";
+    return { proj, state, auto, isRunning };
+  });
+
+  // Sort: active first, then alphabetical by name
+  entries.sort((a, b) => {
+    if (a.isRunning !== b.isRunning) return a.isRunning ? -1 : 1;
+    return a.proj.name.localeCompare(b.proj.name);
+  });
+
+  const hasActive = entries.some((e) => e.isRunning);
+  const hasOffline = entries.some((e) => !e.isRunning);
+  const showGroups = hasActive && hasOffline;
+
+  let msg = `*${WORKSPACE}*\n`;
+  let activeHeaderDone = false;
+  let offlineHeaderDone = false;
+
+  for (const entry of entries) {
+    const { proj, state, auto, isRunning } = entry;
+
+    // Insert group headers when both groups exist
+    if (showGroups && isRunning && !activeHeaderDone) {
+      msg += `\n── Active ──\n`;
+      activeHeaderDone = true;
+    }
+    if (showGroups && !isRunning && !offlineHeaderDone) {
+      msg += `\n── Offline ──\n`;
+      offlineHeaderDone = true;
+    }
+
     const dot = isRunning ? "●" : "○";
     msg += `\n${dot} *${proj.name}*`;
 
@@ -240,10 +268,43 @@ function buildStatusMessage() {
     if (otherWorkspaces.length > 0) {
       let otherMsg = stale ? `\n\n*Other Workspaces* _(${ageLabel})_` : `\n\n*Other Workspaces*`;
 
-      for (const ws of otherWorkspaces) {
+      for (let i = 0; i < otherWorkspaces.length; i++) {
+        const ws = otherWorkspaces[i];
+
+        // Em-dash separator between workspace sections (not before the first)
+        if (i > 0) {
+          otherMsg += `\n———————————`;
+        }
+
         otherMsg += `\n\n*${ws.name}*`;
-        for (const proj of ws.projects) {
-          const dot = proj.isRunning || proj.autoMode ? "●" : "○";
+
+        // Sort projects: active first, then alphabetical
+        const sorted = [...ws.projects].sort((a, b) => {
+          const aActive = a.isRunning || a.autoMode ? 1 : 0;
+          const bActive = b.isRunning || b.autoMode ? 1 : 0;
+          if (aActive !== bActive) return bActive - aActive;
+          return (a.name || "").localeCompare(b.name || "");
+        });
+
+        const wsHasActive = sorted.some((p) => p.isRunning || p.autoMode);
+        const wsHasOffline = sorted.some((p) => !p.isRunning && !p.autoMode);
+        const wsShowGroups = wsHasActive && wsHasOffline;
+        let wsActiveHeaderDone = false;
+        let wsOfflineHeaderDone = false;
+
+        for (const proj of sorted) {
+          const isActive = proj.isRunning || proj.autoMode;
+
+          if (wsShowGroups && isActive && !wsActiveHeaderDone) {
+            otherMsg += `\n── Active ──`;
+            wsActiveHeaderDone = true;
+          }
+          if (wsShowGroups && !isActive && !wsOfflineHeaderDone) {
+            otherMsg += `\n── Offline ──`;
+            wsOfflineHeaderDone = true;
+          }
+
+          const dot = isActive ? "●" : "○";
           otherMsg += `\n${dot} *${proj.name}*\n`;
           if (proj.milestone) {
             otherMsg += `  ${proj.milestone}`;
