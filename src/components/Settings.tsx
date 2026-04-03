@@ -154,17 +154,31 @@ function Settings() {
       for (const byte of utf8Bytes) binary += String.fromCharCode(byte);
       const scriptB64 = btoa(binary);
       const wsName = primaryWs.displayName;
+      const token = escapeShellSingleQuote(config.telegram.botToken);
+      const chatId = escapeShellSingleQuote(config.telegram.chatId);
+      // 1. Write the script
       await invoke("exec_in_workspace", {
         workspace: primaryWs.coderName,
         command: `echo '${scriptB64}' | base64 -d > /home/coder/.gsd-watcher.js`,
       });
+      // 2. Persist env to file so watcher survives workspace restarts
+      await invoke("exec_in_workspace", {
+        workspace: primaryWs.coderName,
+        command: `cat > /home/coder/.gsd-watcher.env << 'ENVEOF'\nTELEGRAM_BOT_TOKEN='${token}'\nTELEGRAM_CHAT_ID='${chatId}'\nWORKSPACE_NAME='${escapeShellSingleQuote(wsName)}'\nENVEOF`,
+      });
+      // 3. Update .profile auto-start to source env file
+      await invoke("exec_in_workspace", {
+        workspace: primaryWs.coderName,
+        command: `sed -i '/gsd-watcher/d' /home/coder/.profile 2>/dev/null; echo 'tmux has-session -t gsd-watcher 2>/dev/null || tmux new-session -d -s gsd-watcher "source /home/coder/.gsd-watcher.env && exec node /home/coder/.gsd-watcher.js 2>&1 | tee /home/coder/.gsd-watcher.log"' >> /home/coder/.profile`,
+      });
+      // 4. Kill old watcher and start fresh
       await invoke("exec_in_workspace", {
         workspace: primaryWs.coderName,
         command: `tmux kill-session -t gsd-watcher 2>/dev/null; true`,
       });
       await invoke("exec_in_workspace", {
         workspace: primaryWs.coderName,
-        command: `tmux new-session -d -s gsd-watcher 'env TELEGRAM_BOT_TOKEN='"'"'${escapeShellSingleQuote(config.telegram.botToken)}'"'"' TELEGRAM_CHAT_ID='"'"'${escapeShellSingleQuote(config.telegram.chatId)}'"'"' WORKSPACE_NAME='"'"'${escapeShellSingleQuote(wsName)}'"'"' node /home/coder/.gsd-watcher.js 2>&1 | tee /home/coder/.gsd-watcher.log'`,
+        command: `tmux new-session -d -s gsd-watcher 'source /home/coder/.gsd-watcher.env && exec node /home/coder/.gsd-watcher.js 2>&1 | tee /home/coder/.gsd-watcher.log'`,
       });
       setDeployStatus(`✓ Watcher running on ${wsName}`);
     } catch (e) {
