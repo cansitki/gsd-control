@@ -635,8 +635,8 @@ function Sidebar() {
                       t.workspace === ws.coderName && t.project === proj.path
                   );
 
-                  // Multiple tabs — let user pick which one
-                  if (projectTabs.length > 1) {
+                  // 1+ tabs — show session picker so user can choose or create new
+                  if (projectTabs.length >= 1) {
                     setSessionPicker({
                       workspace: ws.coderName,
                       wsDisplay: ws.displayName,
@@ -650,13 +650,6 @@ function Sidebar() {
                         idleSeconds: 0,
                       })),
                     });
-                    return;
-                  }
-
-                  // Single tab — switch to it
-                  if (projectTabs.length === 1) {
-                    setActiveBlock(projectTabs[0].id);
-                    setCurrentView("terminal");
                     return;
                   }
 
@@ -767,12 +760,14 @@ function Sidebar() {
               onClick={(e) => {
                 e.stopPropagation();
                 const id = `term-${Date.now()}`;
+                const suffix = Math.random().toString(36).slice(2, 6);
                 addBlock({
                   id,
                   type: 'terminal',
                   workspace: contextMenu.workspace,
                   project: contextMenu.project.path,
                   title: `${contextMenu.wsDisplay} · ${contextMenu.project.displayName}`,
+                  tmuxSession: `gsd-term-${sanitizeShellArg(contextMenu.project.path)}-${suffix}`,
                   isActive: true,
                 });
                 setCurrentView("terminal");
@@ -1028,12 +1023,14 @@ function Sidebar() {
               <button
                 onClick={() => {
                   const id = `term-${Date.now()}`;
+                  const suffix = Math.random().toString(36).slice(2, 6);
                   addBlock({
                     id,
                     type: 'terminal',
                     workspace: sessionPicker.workspace,
                     project: sessionPicker.project.path,
                     title: `${sessionPicker.wsDisplay} · ${sessionPicker.project.displayName}`,
+                    tmuxSession: `gsd-term-${sanitizeShellArg(sessionPicker.project.path)}-${suffix}`,
                     isActive: true,
                   });
                   setCurrentView("terminal");

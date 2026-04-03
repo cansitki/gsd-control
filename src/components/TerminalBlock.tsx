@@ -218,6 +218,7 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
     // --- Connect ---
     const tmuxName = sanitizeShellArg(tmuxSessionProp || tmuxSessionName(tabId, project));
     const safeProject = sanitizeShellArg(project);
+    tw._debug(`connect target: tmuxSession=${tmuxName} tabId=${tabId} tmuxSessionProp=${tmuxSessionProp || 'none'}`);
 
     const connect = async () => {
       if (!mountedRef.current || connectingRef.current) return;

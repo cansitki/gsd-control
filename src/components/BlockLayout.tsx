@@ -239,12 +239,14 @@ function BlockLayout() {
     const ws = workspaces[0];
     const proj = ws.projects[0];
     const id = `term-${Date.now()}`;
+    const suffix = Math.random().toString(36).slice(2, 6);
     addBlock({
       id,
       type: "terminal",
       workspace: ws.coderName,
       project: proj.path,
       title: `${ws.displayName} · ${proj.displayName}`,
+      tmuxSession: `gsd-term-${proj.path}-${suffix}`,
       isActive: true,
     });
     setShowNewBlockMenu(false);
