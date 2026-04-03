@@ -69,9 +69,10 @@ function LogViewer() {
       console.warn(`[LogViewer] ${failures.length} project(s) failed to fetch logs`);
     }
 
-    // Sort by timestamp
+    // Sort by timestamp (normalize to UTC if no timezone specified)
+    const toDate = (ts: string) => new Date(ts + (ts.includes("Z") || ts.includes("+") ? "" : "Z"));
     allLogs.sort(
-      (a, b) => new Date(a.entry.ts).getTime() - new Date(b.entry.ts).getTime()
+      (a, b) => toDate(a.entry.ts).getTime() - toDate(b.entry.ts).getTime()
     );
     setLogs(allLogs);
     setLoading(false);
@@ -155,20 +156,20 @@ function LogViewer() {
         ) : (
           filteredLogs.map((l, i) => (
             <div key={i} className="flex gap-3 py-0.5 group hover:bg-base-surface/50 rounded px-1">
+              <span className="text-accent-blue/60 flex-shrink-0 text-xs min-w-[80px]">
+                {l.project.split(" / ").pop()}
+              </span>
               <span className="text-base-muted/50 flex-shrink-0 text-xs w-16 text-right">
-                {new Date(l.entry.ts).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                {new Date(l.entry.ts + (l.entry.ts.includes("Z") || l.entry.ts.includes("+") ? "" : "Z")).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
               </span>
               <span className="text-base-muted flex-shrink-0 w-16">
-                {new Date(l.entry.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                {new Date(l.entry.ts + (l.entry.ts.includes("Z") || l.entry.ts.includes("+") ? "" : "Z")).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
               </span>
               <span className={`flex-shrink-0 w-36 ${eventColor(l.entry.cmd)}`}>
                 {l.entry.cmd}
               </span>
-              <span className="text-base-text/60 flex-shrink-0">
+              <span className="text-base-text/60 truncate">
                 {Object.values(l.entry.params || {}).join(" / ")}
-              </span>
-              <span className="ml-auto text-base-muted/40 text-xs opacity-0 group-hover:opacity-100">
-                {l.project}
               </span>
             </div>
           ))
