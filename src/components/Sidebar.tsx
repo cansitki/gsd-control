@@ -668,17 +668,16 @@ function Sidebar() {
                       const name = parts[0];
                       const actStr = parts[1];
                       if (!name) continue;
-                      // Match: gsd-term-{project}, {project}, {project-slug},
-                      // or any gsd-term-* session (GSD auto creates these)
+                      // Match same way as the Python SSH poll script:
+                      // session name contains project name, or project name contains session name part
                       const matches =
-                        name === pname ||
-                        name === pslug ||
-                        name === `gsd-term-${pname}` ||
-                        name === `gsd-term-${pslug}` ||
-                        name.startsWith(`gsd-term-${pname}-`) ||
-                        name.startsWith(`gsd-term-${pslug}-`) ||
-                        (name.startsWith("gsd-term-") && pname.includes(name.replace("gsd-term-", "").split("-")[0]));
-                      if (!matches) continue;
+                        name.includes(pname) ||
+                        name.includes(pslug) ||
+                        pname.includes(name) ||
+                        name.startsWith(`gsd-term-${pname}`) ||
+                        name.startsWith(`gsd-term-${pslug}`);
+                      // Exclude gsd-watcher
+                      if (!matches || name === "gsd-watcher") continue;
                       // Skip if already in local tabs
                       if (localNames.has(name)) continue;
                       const activity = parseInt(actStr) || now;
