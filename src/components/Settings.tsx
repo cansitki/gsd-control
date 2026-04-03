@@ -164,12 +164,12 @@ function Settings() {
       // 2. Persist env to file so watcher survives workspace restarts (chmod 600 — token is secret)
       await invoke("exec_in_workspace", {
         workspace: primaryWs.coderName,
-        command: `cat > /home/coder/.gsd-watcher.env << 'ENVEOF'\nexport TELEGRAM_BOT_TOKEN='${token}'\nexport TELEGRAM_CHAT_ID='${chatId}'\nexport WORKSPACE_NAME='${escapeShellSingleQuote(wsName)}'\nENVEOF\nchmod 600 /home/coder/.gsd-watcher.env`,
+        command: `printf 'export TELEGRAM_BOT_TOKEN='"'"'${token}'"'"'\\nexport TELEGRAM_CHAT_ID='"'"'${chatId}'"'"'\\nexport WORKSPACE_NAME='"'"'${escapeShellSingleQuote(wsName)}'"'"'\\n' > /home/coder/.gsd-watcher.env && chmod 600 /home/coder/.gsd-watcher.env`,
       });
       // 3. Update .profile auto-start to source env file
       await invoke("exec_in_workspace", {
         workspace: primaryWs.coderName,
-        command: `sed -i '/gsd-watcher/d' /home/coder/.profile 2>/dev/null; echo 'tmux has-session -t gsd-watcher 2>/dev/null || tmux new-session -d -s gsd-watcher "source /home/coder/.gsd-watcher.env && exec node /home/coder/.gsd-watcher.js 2>&1 | tee /home/coder/.gsd-watcher.log"' >> /home/coder/.profile`,
+        command: `sed -i '/gsd-watcher/d' /home/coder/.profile 2>/dev/null; printf 'tmux has-session -t gsd-watcher 2>/dev/null || tmux new-session -d -s gsd-watcher "source /home/coder/.gsd-watcher.env && exec node /home/coder/.gsd-watcher.js 2>&1 | tee /home/coder/.gsd-watcher.log"\\n' >> /home/coder/.profile`,
       });
       // 4. Kill old watcher and start fresh
       await invoke("exec_in_workspace", {
