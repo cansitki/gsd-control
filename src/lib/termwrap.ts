@@ -49,6 +49,18 @@ const DEFAULTS = {
 /**
  * TermWrap — owns an xterm.js Terminal, all addons, resize logic, and Tauri
  * event wiring.  Pure TypeScript, no React dependency.
+ *
+ * Key architectural notes:
+ * - WebGL addon is disabled — Tauri's WKWebView on macOS has WebGL context
+ *   issues that cause blank terminal rendering. DOM renderer works fine.
+ * - lineHeight is 1.1, not the default 1.0 or the original 1.4. JetBrains
+ *   Mono's natural metrics at 13px are ~16.4px; 1.4 gave 23px/row which
+ *   wasted ~36% of vertical space.
+ * - The SSH connection uses Stdio::piped() (no local PTY), so SIGWINCH
+ *   doesn't propagate. Terminal resize is handled by:
+ *   (a) Rust backend: tmux resize-window -x -y via SSH exec
+ *   (b) Frontend: stty on /proc/<client_pid>/fd/0 to update remote PTY size
+ *   (c) Frontend: tmux refresh-client to make tmux re-read client size
  */
 export class TermWrap {
   public readonly terminal: Terminal;
@@ -58,7 +70,6 @@ export class TermWrap {
   private readonly serializeAddon: SerializeAddon;
   private readonly opts: TermWrapOptions;
   private readonly resizeObserver: ResizeObserver;
-  private readonly elem: HTMLElement;
 
   private fitTimer: ReturnType<typeof setTimeout> | null = null;
   private fitSettleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -68,14 +79,14 @@ export class TermWrap {
   private disposed = false;
   private _fontLoadHandler: (() => void) | null = null;
 
+  /** Debug log to settings debug viewer. Kept for future diagnostics. */
   public _debug(msg: string): void {
-    const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+    const ts = new Date().toISOString().slice(11, 23);
     addDebugLog(`[${ts}] [TERM] ${msg}`);
   }
 
   constructor(elem: HTMLElement, opts: TermWrapOptions = {}) {
     this.opts = opts;
-    this.elem = elem;
 
     const theme = opts.theme ?? DEFAULT_THEME;
     this.terminal = new Terminal({
@@ -104,65 +115,32 @@ export class TermWrap {
     this.terminal.loadAddon(this.serializeAddon);
     this.terminal.loadAddon(webLinksAddon);
 
-    // Open into DOM — must happen before WebGL addon
+    // Open into DOM
     this.terminal.open(elem);
     const rect = elem.getBoundingClientRect();
     this._debug(`open: container=${Math.round(rect.width)}x${Math.round(rect.height)}`);
 
-    // --- WebGL with fallback ---
-    // NOTE: WebGL disabled — Tauri's WKWebView on macOS can have WebGL
-    // context issues that cause the terminal to render blank (canvas overlays
-    // DOM renderer but paints nothing). The DOM/canvas renderer is fast enough.
-    // To re-enable, uncomment the block below.
-    /*
-    try {
-      const webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => {
-        console.warn("[TermWrap] WebGL context lost — falling back to DOM renderer");
-        webglAddon.dispose();
-        // Force a full refresh so the DOM renderer repaints all content
-        this.terminal.refresh(0, this.terminal.rows - 1);
-      });
-      this.terminal.loadAddon(webglAddon);
-    } catch (err) {
-      console.warn("[TermWrap] WebGL renderer unavailable, using DOM renderer:", err);
-    }
-    */
+    // WebGL disabled — Tauri's WKWebView on macOS has WebGL context issues
+    // that cause blank terminal rendering. DOM/canvas renderer works fine.
 
     // --- Resize via FitAddon only ---
-    this.resizeObserver = new ResizeObserver((entries) => {
-      const e = entries[0];
-      if (e) {
-        const cr = e.contentRect;
-        this._debug(`ResizeObserver: ${Math.round(cr.width)}x${Math.round(cr.height)}`);
-      }
-      this.fit();
-    });
+    this.resizeObserver = new ResizeObserver(() => this.fit());
     this.resizeObserver.observe(elem);
 
-    // Initial sizing after fonts are loaded — fit twice to catch font metric changes
+    // Initial sizing after fonts are loaded
     document.fonts.ready.then(() => {
-      this._debug("fonts.ready");
       this.fit(true);
-      // Second fit after a frame to pick up any reflow from font swap
       requestAnimationFrame(() => this.fit(true));
     });
 
-    // Also listen for individual font loads (catches late-loading webfonts)
-    const onFontLoad = () => {
-      this._debug("font loadingdone");
-      this.fit(true);
-    };
+    // Listen for late-loading webfonts (e.g. JetBrains Mono from Google Fonts)
+    const onFontLoad = () => this.fit(true);
     document.fonts.addEventListener("loadingdone", onFontLoad);
     this._fontLoadHandler = onFontLoad;
   }
 
   // ── Tauri event wiring ──────────────────────────────────────────────
 
-  /**
-   * Wire up Tauri `listen()` for incoming terminal data and close events.
-   * Stores unlisten handles for disposal.
-   */
   connectToTauri(tabId: string): void {
     const unData = listen<number[]>(`terminal_data_${tabId}`, (event) => {
       if (!this.disposed) {
@@ -181,7 +159,6 @@ export class TermWrap {
 
   // ── Input ───────────────────────────────────────────────────────────
 
-  /** Subscribe to terminal input. Returns a disposable. */
   handleInput(callback: (data: string) => void): IDisposable {
     return this.terminal.onData(callback);
   }
@@ -206,78 +183,30 @@ export class TermWrap {
   fit(force = false): void {
     if (this.disposed) return;
     if (this.fitTimer) clearTimeout(this.fitTimer);
-    // Cancel any pending settle timer — a new fit request means we're still moving
     if (this.fitSettleTimer) clearTimeout(this.fitSettleTimer);
     this.fitTimer = setTimeout(() => {
       if (this.disposed) return;
       try {
         this.fitAddon.fit();
       } catch {
-        this._debug("fit: FitAddon threw (not attached?)");
         return;
       }
-      const rect = this.elem.getBoundingClientRect();
-      // Read xterm's internal cell size and parent computed height for diagnostics
-      let cellInfo = "";
-      let computedH = 0;
-      let parentChain = "";
-      try {
-        const core = (this.terminal as any)._core;
-        const cssDims = core._renderService.dimensions.css.cell;
-        cellInfo = `cell=${cssDims.width.toFixed(1)}x${cssDims.height.toFixed(1)}`;
-        // This is exactly what FitAddon reads:
-        const parentStyle = window.getComputedStyle(this.terminal.element!.parentElement!);
-        computedH = parseInt(parentStyle.getPropertyValue("height"));
-        // Walk the parent chain to find where height is lost
-        let el: HTMLElement | null = this.elem;
-        const chain: string[] = [];
-        for (let i = 0; i < 8 && el; i++) {
-          const r = el.getBoundingClientRect();
-          const tag = el.tagName.toLowerCase();
-          const cls = el.className?.toString().slice(0, 30) || "";
-          chain.push(`${tag}(${cls})=${Math.round(r.height)}`);
-          el = el.parentElement;
-        }
-        parentChain = chain.join(" → ");
-      } catch { /* older xterm or private API change */ }
       const dims: ITerminalDimensions | undefined =
         this.fitAddon.proposeDimensions();
-      if (!dims) {
-        this._debug(`fit: proposeDimensions=undefined container=${Math.round(rect.width)}x${Math.round(rect.height)} ${cellInfo}`);
-        return;
-      }
+      if (!dims) return;
       const changed = dims.cols !== this.lastCols || dims.rows !== this.lastRows;
-      const actual = `actual=${this.terminal.cols}x${this.terminal.rows}`;
-      // Measure real DOM element heights for diagnosis
-      let domInfo = "";
-      try {
-        const xtermEl = this.terminal.element!;
-        const viewport = xtermEl.querySelector(".xterm-viewport") as HTMLElement;
-        const screen = xtermEl.querySelector(".xterm-screen") as HTMLElement;
-        const xtermRect = xtermEl.getBoundingClientRect();
-        const vpRect = viewport?.getBoundingClientRect();
-        const scRect = screen?.getBoundingClientRect();
-        domInfo = `dom: .xterm=${Math.round(xtermRect.height)} .viewport=${vpRect ? Math.round(vpRect.height) : '?'} .screen=${scRect ? Math.round(scRect.height) : '?'}`;
-      } catch { /* ignore */ }
-      this._debug(`fit: ${dims.cols}x${dims.rows} was=${this.lastCols}x${this.lastRows} ${actual} rect=${Math.round(rect.width)}x${Math.round(rect.height)} computedH=${computedH} ${cellInfo} ${domInfo} force=${force} changed=${changed}`);
-      // Log parent chain on first fit or when height changes by >50px
-      if (this.lastRows === 0 || Math.abs(rect.height - (this.lastRows * 18)) > 50) {
-        this._debug(`parentChain: ${parentChain}`);
+      if (changed) {
+        this._debug(`fit: ${dims.cols}x${dims.rows} (was ${this.lastCols}x${this.lastRows})`);
       }
       if (force || changed) {
         this.lastCols = dims.cols;
         this.lastRows = dims.rows;
         this.opts.onResize?.(dims.cols, dims.rows);
-        // Scroll to bottom when terminal grows — prevents empty scrollback
-        // from showing above content
         this.terminal.scrollToBottom();
       }
-      // Schedule a settle fit — if no more resize events arrive within 250ms,
-      // do one final force-fit to catch any animation that ended between the
-      // last debounce and now
+      // Settle timer — one final fit after resize events stop
       this.fitSettleTimer = setTimeout(() => {
         if (this.disposed) return;
-        this._debug("fit-settle: final force-fit");
         try { this.fitAddon.fit(); } catch { return; }
         const d = this.fitAddon.proposeDimensions();
         if (!d) return;
@@ -287,8 +216,6 @@ export class TermWrap {
           this.lastRows = d.rows;
           this.opts.onResize?.(d.cols, d.rows);
         }
-        // Always scroll to bottom after resize settles — prevents empty
-        // scrollback from showing above content when terminal grows
         this.terminal.scrollToBottom();
       }, 250);
     }, 50);
@@ -310,13 +237,11 @@ export class TermWrap {
 
   // ── Serialize / Restore ───────────────────────────────────────────
 
-  /** Serialize the terminal buffer via SerializeAddon. Returns empty string if disposed. */
   serialize(): string {
     if (this.disposed) return "";
     return this.serializeAddon.serialize();
   }
 
-  /** Write previously serialized data back into the terminal (before Tauri connection). */
   restoreState(data: string): void {
     if (this.disposed) return;
     this.terminal.write(data);
@@ -342,7 +267,6 @@ export class TermWrap {
       this.fitSettleTimer = null;
     }
 
-    // Unlisten Tauri events
     for (const p of this.unlisteners) {
       p.then((fn) => fn()).catch(() => {});
     }

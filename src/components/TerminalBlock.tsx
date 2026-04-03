@@ -130,15 +130,12 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
       tw = new TermWrap(containerRef.current, {
         fontSize: 13,
         onResize: (cols, rows) => {
-          tw._debug(`onResize → ${cols}x${rows} connected=${connectedRef.current}`);
           if (connectedRef.current) {
-            // 1. Resize the tmux window via SSH exec
+            // Resize tmux window via SSH exec (Rust backend)
             invoke("terminal_resize", { id: tabId, cols, rows }).catch(() => {});
-            // 2. Fix the client PTY size — SSH allocates a remote PTY at 80x24
-            //    and since we use pipes (no local PTY), SIGWINCH never propagates.
-            //    tmux sizes to the smallest CLIENT, not the window.
-            //    Fix: resize the client's PTY via stty on /proc/<pid>/fd/0,
-            //    then tell tmux to re-read the client size.
+            // Fix client PTY size — SSH remote PTY defaults to 80x24 and
+            // SIGWINCH doesn't propagate through piped SSH. tmux sizes to
+            // smallest client, so we must update the PTY directly via stty.
             const tmux = sanitizeShellArg(tmuxSessionProp || tmuxSessionName(tabId, project));
             invoke("exec_in_workspace", {
               workspace,
@@ -274,51 +271,21 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
         if (!mountedRef.current) { connectingRef.current = false; return; }
         connectedRef.current = true;
         connectingRef.current = false;
-        tw._debug("connected=true");
 
-        // Fit after connect — force=true ensures resize is sent to tmux
-        // even if dims haven't changed since the initial fit.
-        // The fit triggers terminal_resize + stty to fix the client PTY size.
-        // We then reset the terminal after a delay to wipe the initial 80x24
-        // draw that tmux sends before the resize takes effect.
+        // Fit sequence: the initial fit sends terminal_resize + stty to fix
+        // the client PTY size. At +500ms we reset to clear the initial 80x24
+        // ghost draw (tmux draws at 80x24 before our stty takes effect).
         requestAnimationFrame(() => {
-          tw._debug("post-connect fit(true) RAF");
           tw.fit(true);
+          setTimeout(() => tw.fit(true), 100);
+          setTimeout(() => tw.fit(true), 300);
           setTimeout(() => {
-            tw._debug("post-connect fit(true) +100ms");
-            tw.fit(true);
-          }, 100);
-          setTimeout(() => {
-            tw._debug("post-connect fit(true) +300ms");
-            tw.fit(true);
-          }, 300);
-          setTimeout(() => {
-            tw._debug("post-connect fit(true) +500ms — reset to clear 80x24 ghost");
-            // Reset AFTER the stty resize has taken effect — this clears the
-            // initial 80x24 tmux draw from scrollback. tmux will immediately
-            // redraw at the correct size.
+            // Reset clears the 80x24 ghost from scrollback. tmux redraws
+            // at the correct size immediately after.
             tw.terminal.reset();
             tw.fit(true);
           }, 500);
-          setTimeout(() => {
-            tw._debug("post-connect fit(true) +1000ms");
-            tw.fit(true);
-            // Write diagnostic info directly into terminal for visibility
-            const el = containerRef.current;
-            if (el) {
-              const rect = el.getBoundingClientRect();
-              const xtermEl = tw.terminal.element;
-              const viewport = xtermEl?.querySelector(".xterm-viewport") as HTMLElement | null;
-              const screen = xtermEl?.querySelector(".xterm-screen") as HTMLElement | null;
-              const xtermH = xtermEl ? Math.round(xtermEl.getBoundingClientRect().height) : "?";
-              const vpH = viewport ? Math.round(viewport.getBoundingClientRect().height) : "?";
-              const scH = screen ? Math.round(screen.getBoundingClientRect().height) : "?";
-              const core = (tw.terminal as any)._core;
-              let cellH = "?";
-              try { cellH = core._renderService.dimensions.css.cell.height.toFixed(1); } catch {}
-              tw.write(`\r\n\x1b[38;5;242m[diag] container=${Math.round(rect.width)}x${Math.round(rect.height)} .xterm=${xtermH} .viewport=${vpH} .screen=${scH} cell.h=${cellH} cols=${tw.terminal.cols} rows=${tw.terminal.rows}\x1b[0m\r\n`);
-            }
-          }, 1000);
+          setTimeout(() => tw.fit(true), 1000);
         });
       } catch (e) {
         connectingRef.current = false;
@@ -344,12 +311,11 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
     });
 
     // --- Window events ---
-    const handleWindowResize = () => { tw._debug("window resize"); tw.fit(); };
+    const handleWindowResize = () => tw.fit();
     window.addEventListener("resize", handleWindowResize);
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible" && termWrapRef.current) {
-        tw._debug("visibilitychange → visible");
         tw.terminal.refresh(0, tw.terminal.rows - 1);
         tw.fit();
       }
@@ -358,7 +324,6 @@ function TerminalBlock({ tabId, workspace, project, visible, tmuxSession: tmuxSe
 
     const handleFocus = () => {
       if (termWrapRef.current) {
-        tw._debug("window focus");
         tw.terminal.refresh(0, tw.terminal.rows - 1);
         tw.fit();
       }
