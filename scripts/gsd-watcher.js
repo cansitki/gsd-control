@@ -63,12 +63,214 @@ function sendMessage(text, chatId) {
   });
 }
 
+function sendMessageHTML(text, chatId, replyMarkup) {
+  const body = {
+    chat_id: chatId || CHAT_ID,
+    text,
+    parse_mode: "HTML",
+  };
+  if (replyMarkup) body.reply_markup = replyMarkup;
+  return telegramRequest("sendMessage", body);
+}
+
+function editMessageText(chatId, messageId, text, replyMarkup) {
+  const body = {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    parse_mode: "HTML",
+  };
+  if (replyMarkup) body.reply_markup = replyMarkup;
+  return telegramRequest("editMessageText", body);
+}
+
+function answerCallbackQuery(callbackQueryId, text) {
+  const body = { callback_query_id: callbackQueryId };
+  if (text) body.text = text;
+  return telegramRequest("answerCallbackQuery", body);
+}
+
 function readFileOrNull(filePath) {
   try {
     return fs.readFileSync(filePath, "utf-8");
   } catch {
     return null;
   }
+}
+
+// ── Terminal Capture ────────────────────────────────────────────────────
+
+function stripAnsi(str) {
+  return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "");
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function findTmuxSession(projectName) {
+  try {
+    const result = execSync(
+      "tmux list-sessions -F '#{session_name}' 2>/dev/null",
+      { encoding: "utf-8", timeout: 3000 }
+    );
+    const sessions = result.trim().split("\n").filter(Boolean);
+    // Exact match first, then substring match
+    const exact = sessions.find((s) => s === projectName);
+    if (exact) return exact;
+    const partial = sessions.find((s) => s.includes(projectName));
+    return partial || null;
+  } catch {
+    return null;
+  }
+}
+
+function captureTmuxOutput(sessionName) {
+  try {
+    const raw = execSync(
+      `tmux capture-pane -t '${sessionName}' -p -J 2>/dev/null`,
+      { encoding: "utf-8", timeout: 5000 }
+    );
+    return stripAnsi(raw).trimEnd();
+  } catch {
+    return null;
+  }
+}
+
+// ── Live Feed State ────────────────────────────────────────────────────
+
+const MAX_CONTENT_LEN = 4000; // 4096 limit minus header + <pre></pre> overhead
+const LIVE_INTERVAL_MS = 3000;
+const MAX_CONSECUTIVE_FAILURES = 5;
+
+let liveFeed = null; // { project, session, messageId, intervalId, lastContent, failCount }
+
+async function startLiveFeed(projectName, chatId) {
+  // Stop any existing feed first (R038: one feed at a time)
+  if (liveFeed) {
+    stopLiveFeed();
+  }
+
+  // Validate project name against discovered projects
+  const projects = findGSDProjects();
+  const proj = projects.find(
+    (p) => p.name.toLowerCase() === projectName.toLowerCase()
+  );
+  if (!proj) {
+    await sendMessage(
+      `No GSD project "${projectName}" found.\nKnown: ${projects.map((p) => p.name).join(", ") || "none"}`,
+      chatId
+    );
+    return;
+  }
+
+  // Find tmux session
+  const session = findTmuxSession(proj.name);
+  if (!session) {
+    await sendMessage(
+      `No tmux session found for "${proj.name}".`,
+      chatId
+    );
+    return;
+  }
+
+  // Capture initial content
+  const content = captureTmuxOutput(session);
+  if (content === null) {
+    await sendMessage(`Failed to capture tmux output for "${session}".`, chatId);
+    return;
+  }
+
+  const truncated =
+    content.length > MAX_CONTENT_LEN
+      ? content.slice(content.length - MAX_CONTENT_LEN)
+      : content;
+  const header = `📺 <b>${escapeHtml(proj.name)}</b> — live`;
+  const body = `${header}\n<pre>${escapeHtml(truncated)}</pre>`;
+
+  const stopButton = {
+    inline_keyboard: [[{ text: "⏹ Stop", callback_data: "live_stop" }]],
+  };
+
+  const res = await sendMessageHTML(body, chatId, stopButton);
+  if (!res.ok || !res.result) {
+    await sendMessage("Failed to start live feed.", chatId);
+    return;
+  }
+
+  const messageId = res.result.message_id;
+
+  liveFeed = {
+    project: proj.name,
+    session,
+    messageId,
+    intervalId: null,
+    lastContent: truncated,
+    failCount: 0,
+  };
+
+  // Start the update interval
+  liveFeed.intervalId = setInterval(async () => {
+    if (!liveFeed) return;
+
+    const output = captureTmuxOutput(liveFeed.session);
+    if (output === null) {
+      liveFeed.failCount++;
+      if (liveFeed.failCount >= MAX_CONSECUTIVE_FAILURES) {
+        console.log("[watcher] live feed: too many capture failures, stopping");
+        const stopHeader = `📺 <b>${escapeHtml(liveFeed.project)}</b> — stopped (capture failed)`;
+        const stopBody = `${stopHeader}\n<pre>${escapeHtml(liveFeed.lastContent || "")}</pre>`;
+        await editMessageText(chatId, liveFeed.messageId, stopBody);
+        stopLiveFeed();
+      }
+      return;
+    }
+
+    const trunc =
+      output.length > MAX_CONTENT_LEN
+        ? output.slice(output.length - MAX_CONTENT_LEN)
+        : output;
+
+    // Skip edit if content unchanged (avoids Telegram 400 'message is not modified')
+    if (trunc === liveFeed.lastContent) return;
+
+    liveFeed.lastContent = trunc;
+    const updHeader = `📺 <b>${escapeHtml(liveFeed.project)}</b> — live`;
+    const updBody = `${updHeader}\n<pre>${escapeHtml(trunc)}</pre>`;
+
+    const editRes = await editMessageText(
+      chatId,
+      liveFeed.messageId,
+      updBody,
+      stopButton
+    );
+    if (!editRes.ok) {
+      liveFeed.failCount++;
+      console.log(
+        `[watcher] live feed edit failed (${liveFeed.failCount}/${MAX_CONSECUTIVE_FAILURES}):`,
+        editRes.description || "unknown"
+      );
+      if (liveFeed.failCount >= MAX_CONSECUTIVE_FAILURES) {
+        console.log("[watcher] live feed: too many edit failures, stopping");
+        stopLiveFeed();
+      }
+    } else {
+      liveFeed.failCount = 0;
+    }
+  }, LIVE_INTERVAL_MS);
+
+  console.log(
+    `[watcher] live feed started: project=${proj.name} session=${session} msgId=${messageId}`
+  );
+}
+
+function stopLiveFeed() {
+  if (!liveFeed) return;
+  if (liveFeed.intervalId) {
+    clearInterval(liveFeed.intervalId);
+  }
+  console.log(`[watcher] live feed stopped: project=${liveFeed.project}`);
+  liveFeed = null;
 }
 
 // ── GSD Project Discovery (local fallback) ─────────────────────────────
@@ -341,7 +543,7 @@ async function pollUpdates() {
     const result = await telegramRequest("getUpdates", {
       offset: lastUpdateId + 1,
       timeout: 30,
-      allowed_updates: ["message"],
+      allowed_updates: ["message", "callback_query"],
     });
 
     if (!result.ok || !result.result) return;
@@ -349,22 +551,79 @@ async function pollUpdates() {
     for (const update of result.result) {
       lastUpdateId = update.update_id;
 
+      // Handle callback_query (inline button presses)
+      if (update.callback_query) {
+        const cb = update.callback_query;
+        const cbChatId = String(cb.message?.chat?.id || "");
+        if (cbChatId !== CHAT_ID) continue;
+
+        if (cb.data === "live_stop") {
+          if (liveFeed) {
+            const project = liveFeed.project;
+            const msgId = liveFeed.messageId;
+            const lastOut = liveFeed.lastContent || "";
+            stopLiveFeed();
+            const stopHeader = `📺 <b>${escapeHtml(project)}</b> — stopped`;
+            const stopBody = `${stopHeader}\n<pre>${escapeHtml(lastOut)}</pre>`;
+            await editMessageText(cbChatId, msgId, stopBody);
+            await answerCallbackQuery(cb.id, "Live feed stopped");
+          } else {
+            await answerCallbackQuery(cb.id, "No active live feed");
+          }
+        }
+        continue;
+      }
+
       const msg = update.message;
       if (!msg || !msg.text) continue;
 
       const chatId = String(msg.chat.id);
       if (chatId !== CHAT_ID) continue;
 
-      const text = msg.text.trim().toLowerCase();
+      const text = msg.text.trim();
+      const textLower = text.toLowerCase();
       const botName = (await getBotUsername()).toLowerCase();
 
-      if (text === "/status" || text === `/status@${botName}`) {
+      if (textLower === "/status" || textLower === `/status@${botName}`) {
         const statusMsg = buildStatusMessage();
         await sendMessage(statusMsg, chatId);
-      } else if (text === "/help" || text === `/help@${botName}`) {
+      } else if (
+        textLower === "/live stop" ||
+        textLower === `/live stop@${botName}` ||
+        textLower === `/live@${botName} stop`
+      ) {
+        if (liveFeed) {
+          const project = liveFeed.project;
+          const msgId = liveFeed.messageId;
+          const lastOut = liveFeed.lastContent || "";
+          stopLiveFeed();
+          const stopHeader = `📺 <b>${escapeHtml(project)}</b> — stopped`;
+          const stopBody = `${stopHeader}\n<pre>${escapeHtml(lastOut)}</pre>`;
+          await editMessageText(chatId, msgId, stopBody);
+          await sendMessage(`Live feed stopped for *${project}*.`, chatId);
+        } else {
+          await sendMessage("No active live feed.", chatId);
+        }
+      } else if (
+        textLower.startsWith("/live ") ||
+        textLower.startsWith(`/live@${botName} `)
+      ) {
+        // Extract project name from /live <project>
+        const parts = text.split(/\s+/);
+        const projectArg = parts.length > 1 ? parts.slice(1).join(" ") : "";
+        if (!projectArg) {
+          await sendMessage("Usage: /live <project> or /live stop", chatId);
+        } else {
+          await startLiveFeed(projectArg, chatId);
+        }
+      } else if (textLower === "/live" || textLower === `/live@${botName}`) {
+        await sendMessage("Usage: /live <project> or /live stop", chatId);
+      } else if (textLower === "/help" || textLower === `/help@${botName}`) {
         await sendMessage(
           `*GSD Watcher — ${WORKSPACE}*\n\n` +
             `/status — Show all project statuses\n` +
+            `/live <project> — Stream tmux output live\n` +
+            `/live stop — Stop the live feed\n` +
             `/help — Show this message`,
           chatId
         );
