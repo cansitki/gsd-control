@@ -4,11 +4,23 @@ export const WATCHER_SCRIPT = `#!/usr/bin/env node
 // gsd-watcher.js — Telegram bot for GSD status monitoring
 // Deployed to /home/coder/.gsd-watcher.js on each workspace
 // Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, WORKSPACE_NAME
+// Falls back to /home/coder/.gsd-watcher.env if env vars are not set.
 
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
+
+// Load env from .gsd-watcher.env if vars are missing
+if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) {
+  try {
+    const envFile = fs.readFileSync("/home/coder/.gsd-watcher.env", "utf-8");
+    for (const line of envFile.split("\n")) {
+      const m = line.match(/^export\s+(\w+)='(.*)'/);
+      if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
+    }
+  } catch {}
+}
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -16,7 +28,7 @@ const WORKSPACE = process.env.WORKSPACE_NAME || "Unknown";
 const SNAPSHOT_FILE = "/home/coder/.gsd-watcher-status.json";
 
 if (!BOT_TOKEN || !CHAT_ID) {
-  console.error("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID");
+  console.error("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID. Set env vars or deploy from GSD Control app.");
   process.exit(1);
 }
 

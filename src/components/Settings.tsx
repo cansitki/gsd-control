@@ -161,10 +161,10 @@ function Settings() {
         workspace: primaryWs.coderName,
         command: `echo '${scriptB64}' | base64 -d > /home/coder/.gsd-watcher.js`,
       });
-      // 2. Persist env to file so watcher survives workspace restarts
+      // 2. Persist env to file so watcher survives workspace restarts (chmod 600 — token is secret)
       await invoke("exec_in_workspace", {
         workspace: primaryWs.coderName,
-        command: `cat > /home/coder/.gsd-watcher.env << 'ENVEOF'\nTELEGRAM_BOT_TOKEN='${token}'\nTELEGRAM_CHAT_ID='${chatId}'\nWORKSPACE_NAME='${escapeShellSingleQuote(wsName)}'\nENVEOF`,
+        command: `cat > /home/coder/.gsd-watcher.env << 'ENVEOF'\nexport TELEGRAM_BOT_TOKEN='${token}'\nexport TELEGRAM_CHAT_ID='${chatId}'\nexport WORKSPACE_NAME='${escapeShellSingleQuote(wsName)}'\nENVEOF\nchmod 600 /home/coder/.gsd-watcher.env`,
       });
       // 3. Update .profile auto-start to source env file
       await invoke("exec_in_workspace", {
