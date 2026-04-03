@@ -101,6 +101,8 @@ export class TermWrap {
       fastScrollModifier: "alt",
       convertEol: false,
       rightClickSelectsWord: true,
+      macOptionClickForcesSelection: true,
+      altClickMovesCursor: false,
       theme,
     });
 
