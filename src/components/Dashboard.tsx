@@ -88,13 +88,6 @@ function Dashboard() {
     }
   }, [customStart, customEnd]);
 
-  const parseTokenStr = (s: string | null): number => {
-    if (!s) return 0;
-    const m = s.match(/([\d.]+)([MK])/);
-    if (!m) return 0;
-    return parseFloat(m[1]) * (m[2] === "M" ? 1e6 : 1e3);
-  };
-
   const sessionList = useMemo(() => Object.values(sessions), [sessions]);
 
   // Split into active (running / needs attention) and inactive
@@ -114,19 +107,6 @@ function Dashboard() {
     active.sort((a, b) => urgencyOrder[getCardUrgency(a)] - urgencyOrder[getCardUrgency(b)]);
     return { activeSessions: active, inactiveSessions: inactive };
   }, [sessionList]);
-
-  const totalCost = useMemo(
-    () => sessionList.reduce((sum, s) => sum + (s.status.cost ?? 0), 0),
-    [sessionList]
-  );
-  const totalTokensRead = useMemo(
-    () => sessionList.reduce((sum, s) => sum + parseTokenStr(s.status.tokensRead), 0),
-    [sessionList]
-  );
-  const totalTokensWrite = useMemo(
-    () => sessionList.reduce((sum, s) => sum + parseTokenStr(s.status.tokensWrite), 0),
-    [sessionList]
-  );
 
   const formatTokens = (n: number): string => {
     if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
@@ -181,7 +161,7 @@ function Dashboard() {
       <div className="grid grid-cols-4 gap-4 mb-3">
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
           <p className="text-xs text-base-muted uppercase tracking-wider">Total Cost</p>
-          <p className="text-2xl font-bold text-accent-amber mt-1">${totalCost.toFixed(2)}</p>
+          <p className="text-2xl font-bold text-accent-amber mt-1">${costHistory.stats.totalCost.toFixed(2)}</p>
         </div>
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
           <p className="text-xs text-base-muted uppercase tracking-wider">Today's Cost</p>
@@ -223,10 +203,10 @@ function Dashboard() {
         </div>
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
           <p className="text-xs text-base-muted uppercase tracking-wider">Tokens</p>
-          <p className="text-2xl font-bold text-accent-blue mt-1">{formatTokens(totalTokensRead + totalTokensWrite)}</p>
+          <p className="text-2xl font-bold text-accent-blue mt-1">{formatTokens(costHistory.stats.totalInput + costHistory.stats.totalOutput)}</p>
           <div className="flex gap-3 mt-1 text-xs text-base-muted">
-            <span>↓ {formatTokens(totalTokensRead)}</span>
-            <span>↑ {formatTokens(totalTokensWrite)}</span>
+            <span>↓ {formatTokens(costHistory.stats.totalInput)}</span>
+            <span>↑ {formatTokens(costHistory.stats.totalOutput)}</span>
           </div>
         </div>
         <div className="bg-base-surface border border-base-border rounded-lg p-4 opacity-0 pointer-events-none" aria-hidden="true" />

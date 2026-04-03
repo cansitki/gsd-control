@@ -60,9 +60,20 @@ for event_log in glob.glob(home + "/**/.gsd/event-log.jsonl", recursive=True):
         data["state"] = state
     except: data["state"] = ""
 
-    # Read cost from activity JSONL files (cumulative, survives session resets)
+    # Read cost from session JSONL files (cumulative — single source of truth)
     try:
-        activity_dir = os.path.join(gsd_dir, "activity")
+        sessions_dir = os.path.join(home, ".gsd", "sessions")
+        cwd_encoded = "--" + os.path.join(home, project_dir.replace(home + "/", "")).lstrip("/").replace("/", "-") + "--"
+        session_path = os.path.join(sessions_dir, cwd_encoded)
+        # Also check worktree session dirs
+        worktree_prefix = cwd_encoded.rstrip("-") + "-.gsd-worktrees-"
+        all_session_dirs = []
+        if os.path.isdir(session_path):
+            all_session_dirs.append(session_path)
+        if os.path.isdir(sessions_dir):
+            for d in os.listdir(sessions_dir):
+                if d.startswith(worktree_prefix) and os.path.isdir(os.path.join(sessions_dir, d)):
+                    all_session_dirs.append(os.path.join(sessions_dir, d))
         total_cost = 0
         total_input = 0
         total_output = 0
@@ -70,8 +81,8 @@ for event_log in glob.glob(home + "/**/.gsd/event-log.jsonl", recursive=True):
         total_cache_write = 0
         total_units = 0
         model = ""
-        if os.path.isdir(activity_dir):
-            for f in sorted(glob.glob(os.path.join(activity_dir, "*.jsonl"))):
+        for sdir in all_session_dirs:
+            for f in sorted(glob.glob(os.path.join(sdir, "*.jsonl"))):
                 try:
                     with open(f) as fh:
                         for line in fh:
@@ -91,7 +102,7 @@ for event_log in glob.glob(home + "/**/.gsd/event-log.jsonl", recursive=True):
                             total_cache_write += usage.get("cacheWrite", 0)
                             model = msg.get("model", model)
                 except: continue
-        # Fallback to metrics.json if no activity data
+        # Fallback to metrics.json if no session data
         if total_cost == 0:
             try:
                 metrics = json.load(open(os.path.join(gsd_dir, "metrics.json")))
