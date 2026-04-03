@@ -599,6 +599,8 @@ async function pollUpdates() {
 
     if (!result.ok || !result.result) {
       if (!result.ok) console.error("[watcher] getUpdates not ok:", result.description || JSON.stringify(result));
+      // Back off on error to prevent tight spin loop
+      await new Promise((r) => setTimeout(r, 5000));
       return;
     }
 
@@ -755,6 +757,19 @@ function checkForGSDEvents() {
 async function main() {
   console.log(\`[gsd-watcher] Starting for workspace: \${WORKSPACE}\`);
   console.log(\`[gsd-watcher] Chat ID: \${CHAT_ID}\`);
+
+  // Verify token before entering the poll loop
+  try {
+    const me = await telegramRequest("getMe", {});
+    if (!me.ok) {
+      console.error(\`[gsd-watcher] FATAL: Bot token is invalid (\${me.description || "Unauthorized"}). Redeploy from GSD Control app with a valid token.\`);
+      process.exit(1);
+    }
+    console.log(\`[gsd-watcher] Authenticated as @\${me.result.username}\`);
+  } catch (err) {
+    console.error(\`[gsd-watcher] FATAL: Cannot reach Telegram API: \${err.message}\`);
+    process.exit(1);
+  }
 
   // Register bot commands so Telegram shows them in the / menu
   try {
