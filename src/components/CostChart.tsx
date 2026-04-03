@@ -164,13 +164,21 @@ function CostChart({ data, stats, loading, rangeLabel = "Cost History" }: CostCh
         </p>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-4 gap-3 mb-3">
-        <StatBox label="Daily Avg" value={`$${stats.dailyAverage.toFixed(2)}`} />
-        <StatBox label="Messages" value={formatTokens(stats.totalMessages)} />
+      {/* Stats row — all 4 token types */}
+      <div className="grid grid-cols-4 gap-3 mb-2">
+        <StatBox label="Input Tokens" value={formatTokens(stats.totalInput)} />
         <StatBox label="Output Tokens" value={formatTokens(stats.totalOutput)} />
         <StatBox label="Cache Read" value={formatTokens(stats.totalCacheRead)} />
+        <StatBox label="Cache Write" value={formatTokens(stats.totalCacheWrite)} />
       </div>
+
+      {/* Token mix proportional bar */}
+      <TokenMixBar
+        input={stats.totalInput}
+        output={stats.totalOutput}
+        cacheRead={stats.totalCacheRead}
+        cacheWrite={stats.totalCacheWrite}
+      />
 
       {/* Project breakdown — compact */}
       {stats.projectBreakdown.length > 0 && (
@@ -326,6 +334,12 @@ function CostChart({ data, stats, loading, rangeLabel = "Cost History" }: CostCh
           )}
         </div>
       )}
+
+      {/* Model Distribution */}
+      <ModelDistribution models={stats.models} />
+
+      {/* Per-Milestone Costs */}
+      <MilestoneCosts milestones={stats.milestones} />
     </div>
   );
 }
@@ -335,6 +349,154 @@ function StatBox({ label, value }: { label: string; value: string }) {
     <div className="bg-base-bg border border-base-border rounded px-2.5 py-1.5">
       <p className="text-[10px] text-base-muted uppercase tracking-wider">{label}</p>
       <p className="text-xs font-semibold text-base-text">{value}</p>
+    </div>
+  );
+}
+
+const TOKEN_MIX_COLORS = {
+  input: "#60a5fa",    // blue
+  output: "#34d399",   // green
+  cacheRead: "#fbbf24", // amber
+  cacheWrite: "#a78bfa", // purple
+};
+
+function TokenMixBar({
+  input,
+  output,
+  cacheRead,
+  cacheWrite,
+}: {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}) {
+  const total = input + output + cacheRead + cacheWrite;
+  if (total === 0) return null;
+
+  const segments = [
+    { label: "Input", value: input, color: TOKEN_MIX_COLORS.input },
+    { label: "Output", value: output, color: TOKEN_MIX_COLORS.output },
+    { label: "Cache Read", value: cacheRead, color: TOKEN_MIX_COLORS.cacheRead },
+    { label: "Cache Write", value: cacheWrite, color: TOKEN_MIX_COLORS.cacheWrite },
+  ].filter((s) => s.value > 0);
+
+  return (
+    <div className="mb-3">
+      <div className="flex h-2 rounded-full overflow-hidden bg-base-bg">
+        {segments.map((seg) => (
+          <div
+            key={seg.label}
+            className="h-full"
+            style={{
+              width: `${(seg.value / total) * 100}%`,
+              backgroundColor: seg.color,
+              opacity: 0.8,
+            }}
+            title={`${seg.label}: ${formatTokens(seg.value)} (${((seg.value / total) * 100).toFixed(1)}%)`}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-3 mt-1.5">
+        {segments.map((seg) => (
+          <div key={seg.label} className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: seg.color }} />
+            <span className="text-[10px] text-base-muted">
+              {seg.label} {((seg.value / total) * 100).toFixed(0)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const MODEL_COLORS = [
+  "#60a5fa", "#34d399", "#fbbf24", "#f97316", "#a78bfa",
+  "#f472b6", "#818cf8", "#fb923c", "#2dd4bf", "#e879f9",
+];
+
+function ModelDistribution({ models }: { models: Record<string, number> }) {
+  const entries = Object.entries(models)
+    .filter(([, cost]) => cost > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  if (entries.length === 0) return null;
+
+  const maxCost = entries[0][1];
+
+  return (
+    <div className="mt-4 pt-3 border-t border-base-border">
+      <p className="text-[10px] text-base-muted uppercase tracking-wider mb-2">Model Distribution</p>
+      <div className="space-y-1.5">
+        {entries.map(([model, cost], i) => (
+          <div key={model} className="flex items-center gap-2">
+            <span className="text-xs text-base-muted w-32 truncate flex-shrink-0" title={model}>
+              {model}
+            </span>
+            <div className="flex-1 h-3 bg-base-bg rounded-sm overflow-hidden">
+              <div
+                className="h-full rounded-sm"
+                style={{
+                  width: `${(cost / maxCost) * 100}%`,
+                  backgroundColor: MODEL_COLORS[i % MODEL_COLORS.length],
+                  opacity: 0.75,
+                }}
+              />
+            </div>
+            <span className="text-xs font-medium text-base-text w-16 text-right flex-shrink-0">
+              ${cost.toFixed(2)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatDuration(ms: number): string {
+  if (ms <= 0) return "—";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainMin = minutes % 60;
+  return remainMin > 0 ? `${hours}h ${remainMin}m` : `${hours}h`;
+}
+
+function MilestoneCosts({ milestones }: { milestones: import("../lib/costAggregator").MilestoneBreakdown[] }) {
+  if (milestones.length === 0) return null;
+
+  return (
+    <div className="mt-4 pt-3 border-t border-base-border">
+      <p className="text-[10px] text-base-muted uppercase tracking-wider mb-2">Auto-Mode Milestones</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-base-muted text-left">
+              <th className="pb-1.5 font-medium">Milestone</th>
+              <th className="pb-1.5 font-medium text-right">Cost</th>
+              <th className="pb-1.5 font-medium text-right">Units</th>
+              <th className="pb-1.5 font-medium text-right">Cost/Unit</th>
+              <th className="pb-1.5 font-medium text-right">Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            {milestones.map((m) => (
+              <tr key={m.milestone} className="border-t border-base-border/50">
+                <td className="py-1.5 text-base-text font-medium">{m.milestone}</td>
+                <td className="py-1.5 text-right text-accent-amber">${m.cost.toFixed(2)}</td>
+                <td className="py-1.5 text-right text-base-muted">{m.units}</td>
+                <td className="py-1.5 text-right text-base-text">
+                  {m.units > 0 ? `$${(m.cost / m.units).toFixed(2)}` : "—"}
+                </td>
+                <td className="py-1.5 text-right text-base-muted">{formatDuration(m.durationMs)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

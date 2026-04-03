@@ -177,23 +177,35 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <div className="bg-base-surface border border-base-border rounded-lg p-4">
-          <p className="text-xs text-base-muted uppercase tracking-wider">Active</p>
-          <p className="text-2xl font-bold text-accent-green mt-1">{activeSessions.length}</p>
-        </div>
+      {/* Summary cards — Row 1: Cost metrics + Sessions */}
+      <div className="grid grid-cols-4 gap-4 mb-3">
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
           <p className="text-xs text-base-muted uppercase tracking-wider">Total Cost</p>
           <p className="text-2xl font-bold text-accent-amber mt-1">${totalCost.toFixed(2)}</p>
         </div>
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
-          <p className="text-xs text-base-muted uppercase tracking-wider">Tokens</p>
-          <p className="text-2xl font-bold text-accent-blue mt-1">{formatTokens(totalTokensRead + totalTokensWrite)}</p>
+          <p className="text-xs text-base-muted uppercase tracking-wider">Today's Cost</p>
+          <p className="text-2xl font-bold text-accent-orange mt-1">${costHistory.stats.todayCost.toFixed(2)}</p>
+        </div>
+        <div className="bg-base-surface border border-base-border rounded-lg p-4">
+          <p className="text-xs text-base-muted uppercase tracking-wider">Cost / Hour</p>
+          <p className="text-2xl font-bold text-accent-blue mt-1">${costHistory.stats.costPerHour.toFixed(2)}</p>
+        </div>
+        <div className="bg-base-surface border border-base-border rounded-lg p-4">
+          <p className="text-xs text-base-muted uppercase tracking-wider">Sessions</p>
+          <p className="text-2xl font-bold text-accent-purple mt-1">{costHistory.stats.sessionCount}</p>
           <div className="flex gap-3 mt-1 text-xs text-base-muted">
-            <span>↓ {formatTokens(totalTokensRead)}</span>
-            <span>↑ {formatTokens(totalTokensWrite)}</span>
+            <span>⚡ {costHistory.stats.autoModeCount} auto</span>
+            <span>💬 {costHistory.stats.interactiveCount} interactive</span>
           </div>
+        </div>
+      </div>
+
+      {/* Summary cards — Row 2: Active count + Connection */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="bg-base-surface border border-base-border rounded-lg p-4">
+          <p className="text-xs text-base-muted uppercase tracking-wider">Active</p>
+          <p className="text-2xl font-bold text-accent-green mt-1">{activeSessions.length}</p>
         </div>
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
           <p className="text-xs text-base-muted uppercase tracking-wider">Connection</p>
@@ -209,6 +221,15 @@ function Dashboard() {
             <p className="text-xs text-base-muted mt-1">{healthSummary.healthy}/{healthSummary.total} ws healthy</p>
           )}
         </div>
+        <div className="bg-base-surface border border-base-border rounded-lg p-4">
+          <p className="text-xs text-base-muted uppercase tracking-wider">Tokens</p>
+          <p className="text-2xl font-bold text-accent-blue mt-1">{formatTokens(totalTokensRead + totalTokensWrite)}</p>
+          <div className="flex gap-3 mt-1 text-xs text-base-muted">
+            <span>↓ {formatTokens(totalTokensRead)}</span>
+            <span>↑ {formatTokens(totalTokensWrite)}</span>
+          </div>
+        </div>
+        <div className="bg-base-surface border border-base-border rounded-lg p-4 opacity-0 pointer-events-none" aria-hidden="true" />
       </div>
 
       {/* Active projects — always visible */}
