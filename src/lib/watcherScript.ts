@@ -83,7 +83,7 @@ function findGSDProjects() {
     );
     return result
       .trim()
-      .split("\\n")
+      .split("\n")
       .filter((l) => l && l !== "/home/coder/.gsd")
       .map((gsdPath) => {
         const projectDir = path.dirname(gsdPath);
@@ -103,23 +103,23 @@ function parseStateMd(content) {
   if (!content) return null;
   const info = {};
 
-  const milestoneMatch = content.match(/\\*\\*Active Milestone:\\*\\*\\s*(.+)/);
-  const sliceMatch = content.match(/\\*\\*Active Slice:\\*\\*\\s*(.+)/);
-  const phaseMatch = content.match(/\\*\\*Phase:\\*\\*\\s*(.+)/);
-  const reqMatch = content.match(/\\*\\*Requirements Status:\\*\\*\\s*(.+)/);
-  const nextMatch = content.match(/## Next Action\\n([\\s\\S]*?)(?:\\n##|$)/);
+  const milestoneMatch = content.match(/\*\*Active Milestone:\*\*\s*(.+)/);
+  const sliceMatch = content.match(/\*\*Active Slice:\*\*\s*(.+)/);
+  const phaseMatch = content.match(/\*\*Phase:\*\*\s*(.+)/);
+  const reqMatch = content.match(/\*\*Requirements Status:\*\*\s*(.+)/);
+  const nextMatch = content.match(/## Next Action\n([\s\S]*?)(?:\n##|\$)/);
 
   if (milestoneMatch) info.milestone = milestoneMatch[1].trim();
   if (sliceMatch) info.slice = sliceMatch[1].trim();
   if (phaseMatch) info.phase = phaseMatch[1].trim();
   if (reqMatch) info.requirements = reqMatch[1].trim();
-  if (nextMatch) info.nextAction = nextMatch[1].trim().split("\\n")[0];
+  if (nextMatch) info.nextAction = nextMatch[1].trim().split("\n")[0];
 
   const completedMs = (content.match(/^- ✅/gm) || []).length;
   const activeMs = (content.match(/^- 🔄/gm) || []).length;
   info.milestoneProgress = { completed: completedMs, active: activeMs };
 
-  const blockerSection = content.match(/## Blockers\\n([\\s\\S]*?)(?:\\n##|$)/);
+  const blockerSection = content.match(/## Blockers\n([\s\S]*?)(?:\n##|\$)/);
   if (blockerSection) {
     const blockerText = blockerSection[1].trim();
     if (blockerText && blockerText !== "- None") {
@@ -154,7 +154,7 @@ function getGSDAutoStatus(projectName, gsdDir) {
       "tmux list-sessions -F '#{session_name}' 2>/dev/null || true",
       { encoding: "utf-8", timeout: 3000 }
     );
-    const sessions = result.trim().split("\\n").filter(Boolean);
+    const sessions = result.trim().split("\n").filter(Boolean);
     const hasSession = sessions.some(
       (s) => s.includes(projectName) || s.includes("gsd-auto")
     );
@@ -182,19 +182,47 @@ function buildLocalStatus() {
   const projects = findGSDProjects();
 
   if (projects.length === 0) {
-    return \`*\${WORKSPACE}*\\n\\nNo GSD projects found.\`;
+    return \`*\${WORKSPACE}*\n\nNo GSD projects found.\`;
   }
 
-  let msg = \`*\${WORKSPACE}*\\n\`;
-
-  for (const proj of projects) {
+  // Collect project tuples with computed state
+  const entries = projects.map((proj) => {
     const stateMd = readFileOrNull(path.join(proj.gsdDir, "STATE.md"));
     const state = parseStateMd(stateMd);
     const auto = getGSDAutoStatus(proj.name, proj.gsdDir);
-
     const isRunning = auto.status === "running";
+    return { proj, state, auto, isRunning };
+  });
+
+  // Sort: active first, then alphabetical by name
+  entries.sort((a, b) => {
+    if (a.isRunning !== b.isRunning) return a.isRunning ? -1 : 1;
+    return a.proj.name.localeCompare(b.proj.name);
+  });
+
+  const hasActive = entries.some((e) => e.isRunning);
+  const hasOffline = entries.some((e) => !e.isRunning);
+  const showGroups = hasActive && hasOffline;
+
+  let msg = \`*\${WORKSPACE}*\n\`;
+  let activeHeaderDone = false;
+  let offlineHeaderDone = false;
+
+  for (const entry of entries) {
+    const { proj, state, auto, isRunning } = entry;
+
+    // Insert group headers when both groups exist
+    if (showGroups && isRunning && !activeHeaderDone) {
+      msg += \`\n── Active ──\n\`;
+      activeHeaderDone = true;
+    }
+    if (showGroups && !isRunning && !offlineHeaderDone) {
+      msg += \`\n── Offline ──\n\`;
+      offlineHeaderDone = true;
+    }
+
     const dot = isRunning ? "●" : "○";
-    msg += \`\\n\${dot} *\${proj.name}*\`;
+    msg += \`\n\${dot} *\${proj.name}*\`;
 
     // Detect quick task vs milestone from auto.lock unitId
     if (isRunning && auto.unit) {
@@ -202,18 +230,18 @@ function buildLocalStatus() {
         msg += \` — quick task\`;
       }
     }
-    msg += "\\n";
+    msg += "\n";
 
     if (state) {
       // Milestone or quick — show what they're working on
       if (state.milestone) {
         msg += \`  \${state.milestone}\`;
         if (state.slice) msg += \` / \${state.slice}\`;
-        msg += "\\n";
+        msg += "\n";
       }
-      if (state.phase) msg += \`  Phase: \${state.phase}\\n\`;
-      if (state.nextAction) msg += \`  \${state.nextAction}\\n\`;
-      if (state.blockers) msg += \`  *Blocker:* \${state.blockers}\\n\`;
+      if (state.phase) msg += \`  Phase: \${state.phase}\n\`;
+      if (state.nextAction) msg += \`  \${state.nextAction}\n\`;
+      if (state.blockers) msg += \`  *Blocker:* \${state.blockers}\n\`;
     }
   }
 
@@ -240,20 +268,53 @@ function buildStatusMessage() {
     );
 
     if (otherWorkspaces.length > 0) {
-      let otherMsg = stale ? \`\\n\\n*Other Workspaces* _(\${ageLabel})_\` : \`\\n\\n*Other Workspaces*\`;
+      let otherMsg = stale ? \`\n\n*Other Workspaces* _(\${ageLabel})_\` : \`\n\n*Other Workspaces*\`;
 
-      for (const ws of otherWorkspaces) {
-        otherMsg += \`\\n\\n*\${ws.name}*\`;
-        for (const proj of ws.projects) {
-          const dot = proj.isRunning || proj.autoMode ? "●" : "○";
-          otherMsg += \`\\n\${dot} *\${proj.name}*\\n\`;
+      for (let i = 0; i < otherWorkspaces.length; i++) {
+        const ws = otherWorkspaces[i];
+
+        // Em-dash separator between workspace sections (not before the first)
+        if (i > 0) {
+          otherMsg += \`\n———————————\`;
+        }
+
+        otherMsg += \`\n\n*\${ws.name}*\`;
+
+        // Sort projects: active first, then alphabetical
+        const sorted = [...ws.projects].sort((a, b) => {
+          const aActive = a.isRunning || a.autoMode ? 1 : 0;
+          const bActive = b.isRunning || b.autoMode ? 1 : 0;
+          if (aActive !== bActive) return bActive - aActive;
+          return (a.name || "").localeCompare(b.name || "");
+        });
+
+        const wsHasActive = sorted.some((p) => p.isRunning || p.autoMode);
+        const wsHasOffline = sorted.some((p) => !p.isRunning && !p.autoMode);
+        const wsShowGroups = wsHasActive && wsHasOffline;
+        let wsActiveHeaderDone = false;
+        let wsOfflineHeaderDone = false;
+
+        for (const proj of sorted) {
+          const isActive = proj.isRunning || proj.autoMode;
+
+          if (wsShowGroups && isActive && !wsActiveHeaderDone) {
+            otherMsg += \`\n── Active ──\`;
+            wsActiveHeaderDone = true;
+          }
+          if (wsShowGroups && !isActive && !wsOfflineHeaderDone) {
+            otherMsg += \`\n── Offline ──\`;
+            wsOfflineHeaderDone = true;
+          }
+
+          const dot = isActive ? "●" : "○";
+          otherMsg += \`\n\${dot} *\${proj.name}*\n\`;
           if (proj.milestone) {
             otherMsg += \`  \${proj.milestone}\`;
             if (proj.slice) otherMsg += \` / \${proj.slice}\`;
-            otherMsg += "\\n";
+            otherMsg += "\n";
           }
-          if (proj.phase) otherMsg += \`  Phase: \${proj.phase}\\n\`;
-          if (proj.nextAction) otherMsg += \`  \${proj.nextAction}\\n\`;
+          if (proj.phase) otherMsg += \`  Phase: \${proj.phase}\n\`;
+          if (proj.nextAction) otherMsg += \`  \${proj.nextAction}\n\`;
         }
       }
       return localMsg + otherMsg;
@@ -304,8 +365,8 @@ async function pollUpdates() {
         await sendMessage(statusMsg, chatId);
       } else if (text === "/help" || text === \`/help@\${botName}\`) {
         await sendMessage(
-          \`*GSD Watcher — \${WORKSPACE}*\\n\\n\` +
-            \`/status — Show all project statuses\\n\` +
+          \`*GSD Watcher — \${WORKSPACE}*\n\n\` +
+            \`/status — Show all project statuses\n\` +
             \`/help — Show this message\`,
           chatId
         );
@@ -335,7 +396,7 @@ function checkForGSDEvents() {
         const state = parseStateMd(content);
         if (state && state.phase === "complete") {
           sendMessage(
-            \`*\${proj.name}* on *\${WORKSPACE}*\\nMilestone complete: \${state.milestone || "?"}\`
+            \`*\${proj.name}* on *\${WORKSPACE}*\nMilestone complete: \${state.milestone || "?"}\`
           );
         }
       }
@@ -354,7 +415,7 @@ async function main() {
   console.log(\`[gsd-watcher] Chat ID: \${CHAT_ID}\`);
 
   await sendMessage(
-    \`*GSD Watcher started* on *\${WORKSPACE}*\\nSend /status for project info.\`
+    \`*GSD Watcher started* on *\${WORKSPACE}*\nSend /status for project info.\`
   );
 
   while (true) {
@@ -366,5 +427,4 @@ async function main() {
 main().catch((err) => {
   console.error("[gsd-watcher] Fatal:", err);
   process.exit(1);
-});
-`;
+});`;
