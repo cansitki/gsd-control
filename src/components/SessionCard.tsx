@@ -11,14 +11,19 @@ interface Props {
 /** Determine card urgency: error > warning > active > idle */
 function getCardUrgency(session: GSDSession): "error" | "warning" | "active" | "idle" | "complete" {
   const { status, isRunning } = session;
-  if (status.phase === "error" || status.phase === "blocked") return "error";
-  if (status.phase === "evaluating-gates" || status.phase === "waiting") return "warning";
-  if (isRunning && status.autoMode) return "active";
-  // Has sessions but not in auto mode — check if recently active
-  if (isRunning) {
-    const hasRecentActivity = session.tmuxSessions?.some((s) => s.idle < 120) ?? false;
-    if (hasRecentActivity) return "active";
+  // Check if any tmux session has recent activity
+  const hasRecentActivity = session.tmuxSessions?.some((s) => s.idle < 120) ?? false;
+
+  if (status.phase === "error" || status.phase === "blocked") {
+    // Stale error — if no recent activity, demote to idle
+    return hasRecentActivity ? "error" : "idle";
   }
+  if (status.phase === "evaluating-gates" || status.phase === "waiting") {
+    // Stale warning — if no recent activity, demote to idle
+    return hasRecentActivity ? "warning" : "idle";
+  }
+  if (isRunning && status.autoMode && hasRecentActivity) return "active";
+  if (isRunning && hasRecentActivity) return "active";
   if (status.phase === "complete") return "complete";
   return "idle";
 }
