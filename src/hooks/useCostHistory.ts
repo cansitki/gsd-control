@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
 import { fetchProjectCosts } from "../lib/costAggregator";
-import type { ProjectCostSummary } from "../lib/costAggregator";
+import type { ProjectCostSummary, MilestoneBreakdown } from "../lib/costAggregator";
 import type { DateRange } from "../lib/types";
 
 export type { DateRange } from "../lib/types";
@@ -20,11 +20,19 @@ export interface CostStats {
   totalOutput: number;
   totalCacheRead: number;
   totalCacheWrite: number;
+  totalTokens: number;
   models: Record<string, number>;
   activeDays: number;
   firstDate: string;
   lastDate: string;
   projectBreakdown: { project: string; cost: number; messages: number }[];
+  // New fields from session scanner
+  sessionCount: number;
+  autoModeCount: number;
+  interactiveCount: number;
+  milestones: MilestoneBreakdown[];
+  todayCost: number;
+  costPerHour: number;
 }
 
 interface UseCostHistoryResult {
@@ -83,10 +91,11 @@ function getDateRange(range: DateRange): string[] {
 
 function filterSummaryByRange(
   summaries: ProjectCostSummary[],
-  range: DateRange
+  range: DateRange,
 ): { points: CostDataPoint[]; stats: CostStats } {
   const dateRange = getDateRange(range);
   const isAllTime = range.preset === "all";
+  const todayStr = formatDate(new Date());
 
   // Collect all daily data per project, filtered by date range
   const allPoints: CostDataPoint[] = [];
@@ -96,18 +105,41 @@ function filterSummaryByRange(
   let totalOutput = 0;
   let totalCacheRead = 0;
   let totalCacheWrite = 0;
+  let totalTokens = 0;
   const models: Record<string, number> = {};
   let firstDate = "";
   let lastDate = "";
   const projectCosts: Record<string, { cost: number; messages: number }> = {};
   const activeDateSet = new Set<string>();
 
+  // Aggregate session/auto/interactive counts and milestones
+  let sessionCount = 0;
+  let autoModeCount = 0;
+  let interactiveCount = 0;
+  const allMilestones: MilestoneBreakdown[] = [];
+  let todayCost = 0;
+
   for (const summary of summaries) {
+    sessionCount += summary.sessionCount;
+    autoModeCount += summary.autoModeCount;
+    interactiveCount += summary.interactiveCount;
+    allMilestones.push(...summary.milestones);
+
     for (const day of summary.daily) {
       const inRange = isAllTime || dateRange.includes(day.date);
+
+      // Always compute today's cost regardless of range
+      if (day.date === todayStr) {
+        todayCost += day.cost;
+      }
+
       if (!inRange) continue;
 
-      allPoints.push({ date: day.date, cost: day.cost, project: summary.project });
+      allPoints.push({
+        date: day.date,
+        cost: day.cost,
+        project: summary.project,
+      });
       totalCost += day.cost;
       totalMessages += day.messages;
       totalInput += day.input;
@@ -125,8 +157,10 @@ function filterSummaryByRange(
       projectCosts[summary.project] = pc;
     }
 
-    // Accumulate model costs (these are already totals, so only count for matching range)
-    // For all-time, use the full model data; for filtered ranges, we approximate
+    // totalTokens from summary (all-time value)
+    totalTokens += summary.totalTokens;
+
+    // Accumulate model costs (all-time for all range, approximate for filtered)
     if (isAllTime) {
       for (const [model, cost] of Object.entries(summary.models)) {
         models[model] = (models[model] ?? 0) + cost;
@@ -134,9 +168,8 @@ function filterSummaryByRange(
     }
   }
 
-  // For non-all-time, derive model costs from the totals (we don't have per-day model breakdown)
+  // For non-all-time, derive model costs from the totals
   if (!isAllTime) {
-    // Just note the models used — costs are approximate from daily sums
     for (const summary of summaries) {
       for (const model of Object.keys(summary.models)) {
         if (!(model in models)) models[model] = 0;
@@ -147,7 +180,12 @@ function filterSummaryByRange(
   const activeDays = activeDateSet.size;
   const dailyAverage = activeDays > 0 ? totalCost / activeDays : 0;
 
-  // Fill chart data — ensure every date/project combo exists for consistent stacking
+  // Cost per hour: today's cost / hours elapsed today
+  const now = new Date();
+  const hoursToday = now.getHours() + now.getMinutes() / 60;
+  const costPerHour = hoursToday > 0 ? todayCost / hoursToday : 0;
+
+  // Fill chart data — ensure every date/project combo exists
   const projects = [...new Set(allPoints.map((p) => p.project))];
   const chartDates = isAllTime
     ? [...activeDateSet].sort()
@@ -170,6 +208,21 @@ function filterSummaryByRange(
     .map(([project, { cost, messages }]) => ({ project, cost, messages }))
     .sort((a, b) => b.cost - a.cost);
 
+  // Deduplicate milestones across projects (shouldn't overlap, but be safe)
+  const milestoneMap = new Map<string, MilestoneBreakdown>();
+  for (const m of allMilestones) {
+    const existing = milestoneMap.get(m.milestone);
+    if (existing) {
+      existing.cost += m.cost;
+      existing.tokens += m.tokens;
+      existing.output += m.output;
+      existing.units += m.units;
+      existing.durationMs += m.durationMs;
+    } else {
+      milestoneMap.set(m.milestone, { ...m });
+    }
+  }
+
   return {
     points: filledPoints,
     stats: {
@@ -180,17 +233,25 @@ function filterSummaryByRange(
       totalOutput,
       totalCacheRead,
       totalCacheWrite,
+      totalTokens,
       models,
       activeDays,
       firstDate,
       lastDate,
       projectBreakdown,
+      sessionCount,
+      autoModeCount,
+      interactiveCount,
+      milestones: [...milestoneMap.values()].sort((a, b) =>
+        a.milestone.localeCompare(b.milestone),
+      ),
+      todayCost,
+      costPerHour,
     },
   };
 }
 
 export function useCostHistory(range: DateRange): UseCostHistoryResult {
-  const workspaces = useAppStore((s) => s.workspaces);
   const connection = useAppStore((s) => s.connection);
   const [summaries, setSummaries] = useState<ProjectCostSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -198,14 +259,17 @@ export function useCostHistory(range: DateRange): UseCostHistoryResult {
   const fetchAll = useCallback(async () => {
     setLoading(true);
 
+    // Read fresh workspaces from store to avoid stale closure (K013)
+    const workspaces = useAppStore.getState().workspaces;
+
     const pairs = workspaces.flatMap((ws) =>
-      ws.projects.map((proj) => ({ ws, proj }))
+      ws.projects.map((proj) => ({ ws, proj })),
     );
 
     const results = await Promise.allSettled(
       pairs.map(({ ws, proj }) =>
-        fetchProjectCosts(ws.coderName, proj.path, proj.displayName)
-      )
+        fetchProjectCosts(ws.coderName, proj.path, proj.displayName),
+      ),
     );
 
     const fetched: ProjectCostSummary[] = [];
@@ -217,7 +281,7 @@ export function useCostHistory(range: DateRange): UseCostHistoryResult {
 
     setSummaries(fetched);
     setLoading(false);
-  }, [workspaces]);
+  }, []);
 
   useEffect(() => {
     if (connection.status !== "connected") return;
