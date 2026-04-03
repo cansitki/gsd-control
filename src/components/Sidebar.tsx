@@ -625,35 +625,86 @@ function Sidebar() {
                 const isActive = selectedProject === sessionId;
                 const isRunning = session?.isRunning;
 
-                const handleProjectClick = () => {
+                const handleProjectClick = async () => {
                   setSelectedProject(sessionId);
 
-                  // Check how many terminal tabs exist for this project
+                  // Scan local tabs AND remote tmux sessions for this project
                   const tabs = useAppStore.getState().blocks;
                   const projectTabs = tabs.filter(
                     (t: Block) =>
                       t.workspace === ws.coderName && t.project === proj.path
                   );
 
-                  // 1+ tabs — show session picker so user can choose or create new
-                  if (projectTabs.length >= 1) {
+                  // Build session list from local tabs
+                  const sessions: {
+                    name: string;
+                    tabId?: string;
+                    windows: number;
+                    attached: boolean;
+                    isIdle: boolean;
+                    idleSeconds: number;
+                  }[] = projectTabs.map((t: Block) => ({
+                    name: t.tmuxSession || t.title || t.id,
+                    tabId: t.id,
+                    windows: 1,
+                    attached: t.id === useAppStore.getState().activeBlockId,
+                    isIdle: false,
+                    idleSeconds: 0,
+                  }));
+
+                  // Scan remote tmux sessions matching this project
+                  const localNames = new Set(sessions.map((s) => s.name));
+                  try {
+                    const output = await invoke<string>("exec_in_workspace", {
+                      workspace: ws.coderName,
+                      command: `tmux list-sessions -F '#{session_name}|||#{session_activity}' 2>/dev/null || true`,
+                    });
+                    const pname = proj.path;
+                    const pslug = proj.path.replace(/\//g, "-");
+                    const now = Math.floor(Date.now() / 1000);
+                    for (const line of (output || "").split("\n")) {
+                      if (!line.trim()) continue;
+                      const parts = line.split("|||");
+                      const name = parts[0];
+                      const actStr = parts[1];
+                      if (!name) continue;
+                      // Match: gsd-term-{project}, {project}, {project-slug},
+                      // or any gsd-term-* session (GSD auto creates these)
+                      const matches =
+                        name === pname ||
+                        name === pslug ||
+                        name === `gsd-term-${pname}` ||
+                        name === `gsd-term-${pslug}` ||
+                        name.startsWith(`gsd-term-${pname}-`) ||
+                        name.startsWith(`gsd-term-${pslug}-`) ||
+                        (name.startsWith("gsd-term-") && pname.includes(name.replace("gsd-term-", "").split("-")[0]));
+                      if (!matches) continue;
+                      // Skip if already in local tabs
+                      if (localNames.has(name)) continue;
+                      const activity = parseInt(actStr) || now;
+                      const idle = now - activity;
+                      sessions.push({
+                        name,
+                        windows: 1,
+                        attached: false,
+                        isIdle: idle > 60,
+                        idleSeconds: idle,
+                      });
+                    }
+                  } catch { /* scan failed, show local tabs only */ }
+
+                  // If we found sessions (local or remote), show the picker
+                  if (sessions.length > 0) {
                     setSessionPicker({
                       workspace: ws.coderName,
                       wsDisplay: ws.displayName,
                       project: proj,
-                      sessions: projectTabs.map((t: Block) => ({
-                        name: t.tmuxSession || t.title || t.id,
-                        tabId: t.id,
-                        windows: 1,
-                        attached: t.id === useAppStore.getState().activeBlockId,
-                        isIdle: false,
-                        idleSeconds: 0,
-                      })),
+                      sessions,
                     });
                     return;
                   }
 
-                  // No tabs — open a new one
+                  // No sessions at all — open a new one
                   const id = `term-${Date.now()}`;
                   addBlock({
                     id,
