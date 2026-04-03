@@ -11,6 +11,7 @@ const { execSync } = require("child_process");
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const WORKSPACE = process.env.WORKSPACE_NAME || "Unknown";
+const SNAPSHOT_FILE = "/home/coder/.gsd-watcher-status.json";
 
 if (!BOT_TOKEN || !CHAT_ID) {
   console.error("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID");
@@ -70,7 +71,7 @@ function readFileOrNull(filePath) {
   }
 }
 
-// ── GSD Project Discovery ──────────────────────────────────────────────
+// ── GSD Project Discovery (local fallback) ─────────────────────────────
 
 function findGSDProjects() {
   try {
@@ -85,7 +86,6 @@ function findGSDProjects() {
       .map((gsdPath) => {
         const projectDir = path.dirname(gsdPath);
         const name = path.basename(projectDir);
-        // Resolve symlinks so STATE.md reads work
         let resolvedGsd = gsdPath;
         try {
           resolvedGsd = fs.realpathSync(gsdPath);
@@ -96,8 +96,6 @@ function findGSDProjects() {
     return [];
   }
 }
-
-// ── State Parsing ──────────────────────────────────────────────────────
 
 function parseStateMd(content) {
   if (!content) return null;
@@ -115,12 +113,10 @@ function parseStateMd(content) {
   if (reqMatch) info.requirements = reqMatch[1].trim();
   if (nextMatch) info.nextAction = nextMatch[1].trim().split("\n")[0];
 
-  // Count completed vs total milestones
   const completedMs = (content.match(/^- ✅/gm) || []).length;
   const activeMs = (content.match(/^- 🔄/gm) || []).length;
   info.milestoneProgress = { completed: completedMs, active: activeMs };
 
-  // Extract blockers
   const blockerSection = content.match(/## Blockers\n([\s\S]*?)(?:\n##|$)/);
   if (blockerSection) {
     const blockerText = blockerSection[1].trim();
@@ -136,34 +132,27 @@ function getAutoLock(gsdDir) {
   const lockContent = readFileOrNull(path.join(gsdDir, "auto.lock"));
   if (!lockContent) return null;
   try {
-    const lock = JSON.parse(lockContent);
-    return lock;
+    return JSON.parse(lockContent);
   } catch {
     return null;
   }
 }
 
 function getGSDAutoStatus(projectName, gsdDir) {
-  // Check auto.lock first — most reliable signal
   const lock = getAutoLock(gsdDir);
   if (lock && lock.pid) {
-    // Verify process is still alive
     try {
       process.kill(lock.pid, 0);
       return { status: "running", unit: lock.unitId, phase: lock.unitType };
-    } catch {
-      // Process dead, stale lock
-    }
+    } catch {}
   }
 
-  // Fallback: check tmux sessions
   try {
     const result = execSync(
       "tmux list-sessions -F '#{session_name}' 2>/dev/null || true",
       { encoding: "utf-8", timeout: 3000 }
     );
     const sessions = result.trim().split("\n").filter(Boolean);
-    // GSD auto-mode sessions typically contain the project name
     const hasSession = sessions.some(
       (s) => s.includes(projectName) || s.includes("gsd-auto")
     );
@@ -185,16 +174,62 @@ function phaseEmoji(phase) {
   return "🔄";
 }
 
-// ── Status Command ─────────────────────────────────────────────────────
+// ── Status: snapshot-based (all workspaces from app) ───────────────────
 
-function buildStatusMessage() {
+function readSnapshot() {
+  const raw = readFileOrNull(SNAPSHOT_FILE);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function buildSnapshotStatus(snapshot) {
+  const age = Date.now() - snapshot.timestamp;
+  const ageMins = Math.floor(age / 60000);
+  const stale = ageMins > 5;
+  const ageLabel = ageMins < 1 ? "just now" : ageMins < 60 ? `${ageMins}m ago` : `${Math.floor(ageMins / 60)}h ${ageMins % 60}m ago`;
+
+  let msg = `📡 *All Workspaces*`;
+  if (stale) msg += ` ⚠️ _stale (${ageLabel})_`;
+  else msg += ` _(${ageLabel})_`;
+  msg += "\n";
+
+  for (const ws of snapshot.workspaces) {
+    msg += `\n🖥 *${ws.name}*\n`;
+
+    for (const proj of ws.projects) {
+      const runIcon = proj.isRunning || proj.autoMode ? "🟢" : "⚫";
+      msg += `\n${runIcon} *${proj.name}*\n`;
+
+      if (proj.milestone) {
+        const progress = proj.milestonesTotal
+          ? ` (${proj.milestonesDone}/${proj.milestonesTotal})`
+          : "";
+        msg += `  📌 ${proj.milestone}${progress}\n`;
+      }
+      if (proj.slice) msg += `  🔹 ${proj.slice}\n`;
+      if (proj.phase) msg += `  ${phaseEmoji(proj.phase)} Phase: ${proj.phase}\n`;
+      if (proj.cost) msg += `  💰 $${proj.cost.toFixed(2)}\n`;
+      if (proj.nextAction) msg += `  ➡️ _${proj.nextAction}_\n`;
+    }
+  }
+
+  return msg.trim();
+}
+
+// ── Status: local fallback (this workspace only) ───────────────────────
+
+function buildLocalStatus() {
   const projects = findGSDProjects();
 
   if (projects.length === 0) {
     return `📡 *${WORKSPACE}*\n\nNo GSD projects found.`;
   }
 
-  let msg = `📡 *${WORKSPACE}*\n`;
+  let msg = `📡 *${WORKSPACE}* _(local only)_\n`;
 
   for (const proj of projects) {
     const stateMd = readFileOrNull(path.join(proj.gsdDir, "STATE.md"));
@@ -211,18 +246,54 @@ function buildStatusMessage() {
     if (state) {
       if (state.milestone) {
         const mp = state.milestoneProgress;
-        const progress = mp ? ` (${mp.completed} done${mp.active ? `, ${mp.active} active` : ""})` : "";
+        const progress = mp
+          ? ` (${mp.completed} done${mp.active ? `, ${mp.active} active` : ""})`
+          : "";
         msg += `  📌 ${state.milestone}${progress}\n`;
       }
       if (state.slice) msg += `  🔹 ${state.slice}\n`;
-      if (state.phase) msg += `  ${phaseEmoji(state.phase)} Phase: ${state.phase}\n`;
+      if (state.phase)
+        msg += `  ${phaseEmoji(state.phase)} Phase: ${state.phase}\n`;
       if (state.requirements) msg += `  📋 ${state.requirements}\n`;
       if (state.nextAction) msg += `  ➡️ _${state.nextAction}_\n`;
-      if (state.blockers) msg += `  🚨 *Blocker:* ${state.blockers}\n`;
+      if (state.blockers)
+        msg += `  🚨 *Blocker:* ${state.blockers}\n`;
     }
   }
 
   return msg.trim();
+}
+
+// ── Status Command (snapshot first, local fallback) ────────────────────
+
+function buildStatusMessage() {
+  // Prefer snapshot from the app (has all workspaces)
+  const snapshot = readSnapshot();
+  if (snapshot && (Date.now() - snapshot.timestamp) < 3600000) {
+    // Snapshot is less than 1 hour old — use it
+    // Also append fresh local data for THIS workspace (more current than snapshot)
+    let msg = buildSnapshotStatus(snapshot);
+
+    // Add local auto.lock data that the snapshot may not have
+    const projects = findGSDProjects();
+    for (const proj of projects) {
+      const auto = getGSDAutoStatus(proj.name, proj.gsdDir);
+      if (auto.status === "running" && auto.unit) {
+        // Check if snapshot already shows this project as running
+        const snapshotProj = snapshot.workspaces
+          .flatMap((ws) => ws.projects)
+          .find((p) => p.name === proj.name || p.path?.includes(proj.name));
+        if (snapshotProj && !snapshotProj.autoMode) {
+          msg += `\n\n_⚡ Live: ${proj.name} auto-mode on ${auto.unit}_`;
+        }
+      }
+    }
+
+    return msg;
+  }
+
+  // No snapshot or too old — fall back to local-only
+  return buildLocalStatus();
 }
 
 // ── Command Polling ────────────────────────────────────────────────────
@@ -297,7 +368,7 @@ function checkForGSDEvents() {
         const state = parseStateMd(content);
         if (state && state.phase === "complete") {
           sendMessage(
-            `✅ *${proj.name}* on *${WORKSPACE}*\nMilestone complete: ${state.milestone || "?"}`,
+            `✅ *${proj.name}* on *${WORKSPACE}*\nMilestone complete: ${state.milestone || "?"}`
           );
         }
       }
@@ -315,7 +386,9 @@ async function main() {
   console.log(`[gsd-watcher] Starting for workspace: ${WORKSPACE}`);
   console.log(`[gsd-watcher] Chat ID: ${CHAT_ID}`);
 
-  await sendMessage(`🔄 *GSD Watcher started* on *${WORKSPACE}*\nSend /status for project info.`);
+  await sendMessage(
+    `🔄 *GSD Watcher started* on *${WORKSPACE}*\nSend /status for project info.`
+  );
 
   while (true) {
     await pollUpdates();

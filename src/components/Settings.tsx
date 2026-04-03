@@ -139,25 +139,30 @@ function Settings() {
   };
 
   const handleDeployWatcher = async () => {
-    setDeployStatus("Deploying to both workspaces...");
+    if (workspaces.length === 0) {
+      setDeployStatus("No workspaces configured");
+      return;
+    }
+    // Deploy watcher to the first workspace only — it reads the snapshot file
+    // written by the app (which has all-workspace data) for /status responses.
+    const primaryWs = workspaces[0];
+    setDeployStatus(`Deploying watcher to ${primaryWs.displayName}...`);
     try {
       const scriptB64 = btoa(WATCHER_SCRIPT);
-      for (const ws of workspaces) {
-        const wsName = ws.displayName;
-        await invoke("exec_in_workspace", {
-          workspace: ws.coderName,
-          command: `echo '${scriptB64}' | base64 -d > /home/coder/.gsd-watcher.js`,
-        });
-        await invoke("exec_in_workspace", {
-          workspace: ws.coderName,
-          command: `tmux kill-session -t gsd-watcher 2>/dev/null; true`,
-        });
-        await invoke("exec_in_workspace", {
-          workspace: ws.coderName,
-          command: `TELEGRAM_BOT_TOKEN='${escapeShellSingleQuote(config.telegram.botToken)}' TELEGRAM_CHAT_ID='${escapeShellSingleQuote(config.telegram.chatId)}' WORKSPACE_NAME='${escapeShellSingleQuote(wsName)}' tmux new-session -d -s gsd-watcher "node /home/coder/.gsd-watcher.js 2>&1 | tee /home/coder/.gsd-watcher.log"`,
-        });
-      }
-      setDeployStatus("✓ Watchers restarted on both workspaces");
+      const wsName = primaryWs.displayName;
+      await invoke("exec_in_workspace", {
+        workspace: primaryWs.coderName,
+        command: `echo '${scriptB64}' | base64 -d > /home/coder/.gsd-watcher.js`,
+      });
+      await invoke("exec_in_workspace", {
+        workspace: primaryWs.coderName,
+        command: `tmux kill-session -t gsd-watcher 2>/dev/null; true`,
+      });
+      await invoke("exec_in_workspace", {
+        workspace: primaryWs.coderName,
+        command: `tmux new-session -d -s gsd-watcher 'env TELEGRAM_BOT_TOKEN='"'"'${escapeShellSingleQuote(config.telegram.botToken)}'"'"' TELEGRAM_CHAT_ID='"'"'${escapeShellSingleQuote(config.telegram.chatId)}'"'"' WORKSPACE_NAME='"'"'${escapeShellSingleQuote(wsName)}'"'"' node /home/coder/.gsd-watcher.js 2>&1 | tee /home/coder/.gsd-watcher.log'`,
+      });
+      setDeployStatus(`✓ Watcher running on ${wsName}`);
     } catch (e) {
       setDeployStatus(`Failed: ${e}`);
     }

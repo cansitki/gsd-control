@@ -464,6 +464,46 @@ export function useSSH() {
     );
 
     setLastPollTime(Date.now());
+
+    // Write combined status snapshot to the first workspace for the Telegram watcher.
+    // Best-effort — failures don't affect the poll cycle.
+    try {
+      const allSessions = useAppStore.getState().sessions;
+      const snapshot = {
+        timestamp: Date.now(),
+        workspaces: workspaces.map((ws) => ({
+          name: ws.displayName,
+          coderName: ws.coderName,
+          projects: ws.projects.map((proj) => {
+            const sid = `${ws.coderName}:${proj.path}`;
+            const session = allSessions[sid];
+            return {
+              name: proj.displayName,
+              path: proj.path,
+              milestone: session?.status?.milestone || null,
+              slice: session?.status?.slice || null,
+              phase: session?.status?.phase || null,
+              cost: session?.status?.cost || 0,
+              autoMode: session?.status?.autoMode || false,
+              isRunning: session?.isRunning || false,
+              nextAction: session?.status?.lastTaskDescription || null,
+              milestonesDone: session?.status?.sliceCurrent || 0,
+              milestonesTotal: session?.status?.sliceTotal || 0,
+            };
+          }),
+        })),
+      };
+      const snapshotJson = JSON.stringify(snapshot);
+      const primaryWs = workspaces[0];
+      if (primaryWs) {
+        invoke("exec_in_workspace", {
+          workspace: primaryWs.coderName,
+          command: `cat > /home/coder/.gsd-watcher-status.json << 'SNAPSHOT_EOF'\n${snapshotJson}\nSNAPSHOT_EOF`,
+        }).catch(() => {}); // fire-and-forget
+      }
+    } catch {
+      // Best-effort — don't break the poll cycle
+    }
   }, [setSession, setWorkspaceHealth, setLastPollTime]);
 
   // Check if all workspaces are unhealthy — triggers reconnect
