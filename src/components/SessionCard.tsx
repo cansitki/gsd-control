@@ -14,7 +14,11 @@ function getCardUrgency(session: GSDSession): "error" | "warning" | "active" | "
   if (status.phase === "error" || status.phase === "blocked") return "error";
   if (status.phase === "evaluating-gates" || status.phase === "waiting") return "warning";
   if (isRunning && status.autoMode) return "active";
-  if (isRunning) return "active";
+  // Has sessions but not in auto mode — check if recently active
+  if (isRunning) {
+    const hasRecentActivity = session.tmuxSessions?.some((s) => s.idle < 120) ?? false;
+    if (hasRecentActivity) return "active";
+  }
   if (status.phase === "complete") return "complete";
   return "idle";
 }

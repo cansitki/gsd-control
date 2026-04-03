@@ -49,7 +49,6 @@ function formatTimeAgo(ts: number): string {
 
 function Dashboard() {
   const sessions = useAppStore((s) => s.sessions);
-  const events = useAppStore((s) => s.events);
   const connection = useAppStore((s) => s.connection);
   const lastPollTime = useAppStore((s) => s.lastPollTime);
   const workspaceHealth = useAppStore((s) => s.workspaceHealth);
@@ -143,7 +142,6 @@ function Dashboard() {
   }, [workspaceHealth, workspaces]);
 
   const rangeLabel = formatRangeLabel(dateRange);
-  const recentEvents = useMemo(() => events.slice(0, 10), [events]);
 
   const errorsOrWarnings = activeSessions.filter(
     (s) => getCardUrgency(s) === "error" || getCardUrgency(s) === "warning"
@@ -285,30 +283,6 @@ function Dashboard() {
               : "Connect to your Coder instance to get started"}
           </p>
         </div>
-      )}
-
-      {/* Recent events */}
-      {recentEvents.length > 0 && (
-        <>
-          <h2 className="text-xs font-semibold text-base-muted uppercase tracking-wider mb-3 mt-6">
-            Recent Events
-          </h2>
-          <div className="space-y-1">
-            {recentEvents.map((event, i) => (
-              <div key={i} className="flex items-center gap-3 text-xs py-1.5 px-3 rounded bg-base-surface border border-base-border">
-                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                  event.type === "error" ? "bg-accent-red" :
-                  event.type === "milestone_complete" ? "bg-accent-green" :
-                  event.type === "rate_limit" ? "bg-accent-amber" :
-                  "bg-base-muted"
-                }`} />
-                <span className="text-base-muted">{new Date(event.timestamp).toLocaleTimeString()}</span>
-                <span className="text-base-text truncate">{event.message}</span>
-                <span className="ml-auto text-base-muted flex-shrink-0">{event.project}</span>
-              </div>
-            ))}
-          </div>
-        </>
       )}
     </div>
   );
