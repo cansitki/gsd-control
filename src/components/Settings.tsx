@@ -166,10 +166,10 @@ function Settings() {
         workspace: primaryWs.coderName,
         command: `printf 'export TELEGRAM_BOT_TOKEN='"'"'${token}'"'"'\\nexport TELEGRAM_CHAT_ID='"'"'${chatId}'"'"'\\nexport WORKSPACE_NAME='"'"'${escapeShellSingleQuote(wsName)}'"'"'\\n' > /home/coder/.gsd-watcher.env && chmod 600 /home/coder/.gsd-watcher.env`,
       });
-      // 3. Update .profile auto-start to source env file
+      // 3. Update .profile auto-start — inline env vars as primary, source as fallback
       await invoke("exec_in_workspace", {
         workspace: primaryWs.coderName,
-        command: `sed -i '/gsd-watcher/d' /home/coder/.profile 2>/dev/null; printf 'tmux has-session -t gsd-watcher 2>/dev/null || tmux new-session -d -s gsd-watcher "source /home/coder/.gsd-watcher.env && exec node /home/coder/.gsd-watcher.js 2>&1 | tee /home/coder/.gsd-watcher.log"\\n' >> /home/coder/.profile`,
+        command: `sed -i '/gsd-watcher/d' /home/coder/.profile 2>/dev/null; printf 'tmux has-session -t gsd-watcher 2>/dev/null || tmux new-session -d -s gsd-watcher "source /home/coder/.gsd-watcher.env 2>/dev/null; TELEGRAM_BOT_TOKEN='"'"'${token}'"'"' TELEGRAM_CHAT_ID='"'"'${chatId}'"'"' WORKSPACE_NAME='"'"'${escapeShellSingleQuote(wsName)}'"'"' exec node /home/coder/.gsd-watcher.js 2>&1 | tee /home/coder/.gsd-watcher.log"\\n' >> /home/coder/.profile`,
       });
       // 4. Kill old watcher and start fresh
       await invoke("exec_in_workspace", {
@@ -178,7 +178,7 @@ function Settings() {
       });
       await invoke("exec_in_workspace", {
         workspace: primaryWs.coderName,
-        command: `tmux new-session -d -s gsd-watcher 'source /home/coder/.gsd-watcher.env && exec node /home/coder/.gsd-watcher.js 2>&1 | tee /home/coder/.gsd-watcher.log'`,
+        command: `tmux new-session -d -s gsd-watcher 'TELEGRAM_BOT_TOKEN='"'"'${token}'"'"' TELEGRAM_CHAT_ID='"'"'${chatId}'"'"' WORKSPACE_NAME='"'"'${escapeShellSingleQuote(wsName)}'"'"' exec node /home/coder/.gsd-watcher.js 2>&1 | tee /home/coder/.gsd-watcher.log'`,
       });
       setDeployStatus(`✓ Watcher running on ${wsName}`);
     } catch (e) {
