@@ -38,6 +38,7 @@ function telegramRequest(method, body) {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(data),
         },
+        timeout: method === "getUpdates" ? 35000 : 10000,
       },
       (res) => {
         let buf = "";
@@ -51,6 +52,10 @@ function telegramRequest(method, body) {
         });
       }
     );
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error(\`telegramRequest \${method} timed out\`));
+    });
     req.on("error", reject);
     req.write(data);
     req.end();
@@ -592,7 +597,14 @@ async function pollUpdates() {
       allowed_updates: ["message", "callback_query"],
     });
 
-    if (!result.ok || !result.result) return;
+    if (!result.ok || !result.result) {
+      if (!result.ok) console.error("[watcher] getUpdates not ok:", result.description || JSON.stringify(result));
+      return;
+    }
+
+    if (result.result.length > 0) {
+      console.log(\`[watcher] got \${result.result.length} update(s)\`);
+    }
 
     for (const update of result.result) {
       lastUpdateId = update.update_id;
@@ -640,15 +652,25 @@ async function pollUpdates() {
       if (!msg || !msg.text) continue;
 
       const chatId = String(msg.chat.id);
-      if (chatId !== CHAT_ID) continue;
+      if (chatId !== CHAT_ID) {
+        console.log(\`[watcher] ignoring msg from chat \${chatId} (expected \${CHAT_ID})\`);
+        continue;
+      }
 
       const text = msg.text.trim();
       const textLower = text.toLowerCase();
       const botName = (await getBotUsername()).toLowerCase();
 
+      console.log(\`[watcher] msg from \${chatId}: "\${text}" (bot: \${botName})\`);
+
       if (textLower === "/status" || textLower === \`/status@\${botName}\`) {
-        const statusMsg = buildStatusMessage();
-        await sendMessage(statusMsg, chatId);
+        try {
+          const statusMsg = buildStatusMessage();
+          await sendMessage(statusMsg, chatId);
+        } catch (err) {
+          console.error("[watcher] /status error:", err.message);
+          await sendMessage("Error building status.", chatId);
+        }
       } else if (
         textLower === "/live stop" ||
         textLower === \`/live stop@\${botName}\` ||
@@ -733,6 +755,20 @@ function checkForGSDEvents() {
 async function main() {
   console.log(\`[gsd-watcher] Starting for workspace: \${WORKSPACE}\`);
   console.log(\`[gsd-watcher] Chat ID: \${CHAT_ID}\`);
+
+  // Register bot commands so Telegram shows them in the / menu
+  try {
+    await telegramRequest("setMyCommands", {
+      commands: [
+        { command: "status", description: "Show all project statuses" },
+        { command: "live", description: "Stream tmux terminal output" },
+        { command: "help", description: "Show available commands" },
+      ],
+    });
+    console.log("[gsd-watcher] Bot commands registered");
+  } catch (err) {
+    console.error("[gsd-watcher] Failed to register commands:", err.message);
+  }
 
   await sendMessage(
     \`*GSD Watcher started* on *\${WORKSPACE}*\nSend /status for project info.\`
