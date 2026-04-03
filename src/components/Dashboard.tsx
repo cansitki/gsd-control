@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAppStore } from "../stores/appStore";
 import { useSSH } from "../hooks/useSSH";
-import SessionCard from "./SessionCard";
+import SessionCard, { getCardUrgency } from "./SessionCard";
 import CostChart from "./CostChart";
 import { useCostHistory } from "../hooks/useCostHistory";
 import type { DateRange } from "../lib/types";
@@ -18,14 +18,10 @@ const PRESETS: { key: DatePreset; label: string }[] = [
 
 function formatRangeLabel(range: DateRange): string {
   switch (range.preset) {
-    case "today":
-      return "Today";
-    case "week":
-      return "Last 7 Days";
-    case "month":
-      return "Last 30 Days";
-    case "all":
-      return "All Time";
+    case "today": return "Today";
+    case "week": return "Last 7 Days";
+    case "month": return "Last 30 Days";
+    case "all": return "All Time";
     case "custom": {
       if (range.start && range.end) {
         const fmtDate = (iso: string) => {
@@ -36,8 +32,7 @@ function formatRangeLabel(range: DateRange): string {
       }
       return "Custom Range";
     }
-    default:
-      return "Cost History";
+    default: return "Cost History";
   }
 }
 
@@ -78,7 +73,6 @@ function Dashboard() {
 
   const handlePresetClick = useCallback((preset: DatePreset) => {
     if (preset === "custom") {
-      // When switching to custom, set range with current custom dates (or empty)
       setDateRange((prev) => ({
         preset: "custom",
         start: prev.preset === "custom" ? prev.start : "",
@@ -103,7 +97,25 @@ function Dashboard() {
   };
 
   const sessionList = useMemo(() => Object.values(sessions), [sessions]);
-  const activeSessions = useMemo(() => sessionList.filter((s) => s.isRunning), [sessionList]);
+
+  // Split into active (running / needs attention) and inactive
+  const { activeSessions, inactiveSessions } = useMemo(() => {
+    const active: typeof sessionList = [];
+    const inactive: typeof sessionList = [];
+    for (const s of sessionList) {
+      const urgency = getCardUrgency(s);
+      if (urgency === "error" || urgency === "warning" || urgency === "active") {
+        active.push(s);
+      } else {
+        inactive.push(s);
+      }
+    }
+    // Sort active: errors first, then warnings, then active
+    const urgencyOrder = { error: 0, warning: 1, active: 2, complete: 3, idle: 4 };
+    active.sort((a, b) => urgencyOrder[getCardUrgency(a)] - urgencyOrder[getCardUrgency(b)]);
+    return { activeSessions: active, inactiveSessions: inactive };
+  }, [sessionList]);
+
   const totalCost = useMemo(
     () => sessionList.reduce((sum, s) => sum + (s.status.cost ?? 0), 0),
     [sessionList]
@@ -124,23 +136,31 @@ function Dashboard() {
     return n.toString();
   };
 
-  // Workspace connection health summary
   const healthSummary = useMemo(() => {
     const total = workspaces.length;
-    const healthyCount = Object.values(workspaceHealth).filter(
-      (s) => s === "ok"
-    ).length;
+    const healthyCount = Object.values(workspaceHealth).filter((s) => s === "ok").length;
     return { healthy: healthyCount, total };
   }, [workspaceHealth, workspaces]);
 
   const rangeLabel = formatRangeLabel(dateRange);
   const recentEvents = useMemo(() => events.slice(0, 10), [events]);
 
+  const errorsOrWarnings = activeSessions.filter(
+    (s) => getCardUrgency(s) === "error" || getCardUrgency(s) === "warning"
+  ).length;
+
   return (
     <div className="h-full overflow-y-auto p-6">
-      {/* Header with last-poll and refresh */}
+      {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-bold text-base-text">Dashboard</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-sm font-bold text-base-text">Dashboard</h2>
+          {errorsOrWarnings > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent-red/15 text-accent-red border border-accent-red/30 font-medium animate-pulse">
+              {errorsOrWarnings} need{errorsOrWarnings === 1 ? "s" : ""} attention
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-base-muted">
             Last poll: {formatTimeAgo(lastPollTime)}
@@ -162,61 +182,53 @@ function Dashboard() {
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
-          <p className="text-xs text-base-muted uppercase tracking-wider">
-            Active Sessions
-          </p>
-          <p className="text-2xl font-bold text-accent-green mt-1">
-            {activeSessions.length}
-          </p>
+          <p className="text-xs text-base-muted uppercase tracking-wider">Active</p>
+          <p className="text-2xl font-bold text-accent-green mt-1">{activeSessions.length}</p>
         </div>
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
-          <p className="text-xs text-base-muted uppercase tracking-wider">
-            Total Cost
-          </p>
-          <p className="text-2xl font-bold text-accent-amber mt-1">
-            ${totalCost.toFixed(2)}
-          </p>
+          <p className="text-xs text-base-muted uppercase tracking-wider">Total Cost</p>
+          <p className="text-2xl font-bold text-accent-amber mt-1">${totalCost.toFixed(2)}</p>
         </div>
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
-          <p className="text-xs text-base-muted uppercase tracking-wider">
-            Tokens (all projects)
-          </p>
-          <p className="text-2xl font-bold text-accent-blue mt-1">
-            {formatTokens(totalTokensRead + totalTokensWrite)}
-          </p>
+          <p className="text-xs text-base-muted uppercase tracking-wider">Tokens</p>
+          <p className="text-2xl font-bold text-accent-blue mt-1">{formatTokens(totalTokensRead + totalTokensWrite)}</p>
           <div className="flex gap-3 mt-1 text-xs text-base-muted">
             <span>↓ {formatTokens(totalTokensRead)}</span>
             <span>↑ {formatTokens(totalTokensWrite)}</span>
           </div>
         </div>
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
-          <p className="text-xs text-base-muted uppercase tracking-wider">
-            Connection
-          </p>
-          <p
-            className={`text-2xl font-bold mt-1 ${
-              connection.status === "connected"
-                ? "text-accent-green"
-                : connection.status === "reconnecting"
-                  ? "text-accent-amber animate-pulse"
-                  : "text-accent-red"
-            }`}
-          >
-            {connection.status === "connected"
-              ? "Online"
-              : connection.status === "reconnecting"
-                ? "Reconnecting..."
-                : "Offline"}
+          <p className="text-xs text-base-muted uppercase tracking-wider">Connection</p>
+          <p className={`text-2xl font-bold mt-1 ${
+            connection.status === "connected" ? "text-accent-green" :
+            connection.status === "reconnecting" ? "text-accent-amber animate-pulse" :
+            "text-accent-red"
+          }`}>
+            {connection.status === "connected" ? "Online" :
+             connection.status === "reconnecting" ? "Reconnecting..." : "Offline"}
           </p>
           {healthSummary.total > 0 && (
-            <p className="text-xs text-base-muted mt-1">
-              {healthSummary.healthy}/{healthSummary.total} ws healthy
-            </p>
+            <p className="text-xs text-base-muted mt-1">{healthSummary.healthy}/{healthSummary.total} ws healthy</p>
           )}
         </div>
       </div>
 
-      {/* Date range selector + Cost chart */}
+      {/* Active projects — always visible */}
+      {activeSessions.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-xs font-semibold text-accent-green uppercase tracking-wider mb-3 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent-green animate-pulse" />
+            Active Projects
+          </h2>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {activeSessions.map((session) => (
+              <SessionCard key={session.id} session={session} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Cost chart */}
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-3">
           {PRESETS.map(({ key, label }) => (
@@ -233,46 +245,38 @@ function Dashboard() {
             </button>
           ))}
         </div>
-
-        {/* Custom date inputs */}
         {dateRange.preset === "custom" && (
           <div className="flex items-center gap-2 mb-3">
-            <input
-              type="date"
-              value={customStart}
-              onChange={(e) => setCustomStart(e.target.value)}
-              className="text-xs px-2 py-1.5 rounded border border-base-border bg-base-bg text-base-text"
-            />
+            <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
+              className="text-xs px-2 py-1.5 rounded border border-base-border bg-base-bg text-base-text" />
             <span className="text-xs text-base-muted">–</span>
-            <input
-              type="date"
-              value={customEnd}
-              onChange={(e) => setCustomEnd(e.target.value)}
-              className="text-xs px-2 py-1.5 rounded border border-base-border bg-base-bg text-base-text"
-            />
-            <button
-              onClick={handleCustomApply}
-              disabled={!customStart || !customEnd}
-              className="text-xs px-3 py-1.5 rounded border border-accent-orange/30 text-accent-orange hover:bg-accent-orange/10 transition-colors disabled:opacity-50"
-            >
+            <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
+              className="text-xs px-2 py-1.5 rounded border border-base-border bg-base-bg text-base-text" />
+            <button onClick={handleCustomApply} disabled={!customStart || !customEnd}
+              className="text-xs px-3 py-1.5 rounded border border-accent-orange/30 text-accent-orange hover:bg-accent-orange/10 transition-colors disabled:opacity-50">
               Apply
             </button>
           </div>
         )}
-
-        <CostChart
-          data={costHistory.data}
-          stats={costHistory.stats}
-          loading={costHistory.loading}
-          rangeLabel={rangeLabel}
-        />
+        <CostChart data={costHistory.data} stats={costHistory.stats} loading={costHistory.loading} rangeLabel={rangeLabel} />
       </div>
 
-      {/* Session grid */}
-      <h2 className="text-xs font-semibold text-base-muted uppercase tracking-wider mb-3">
-        Projects
-      </h2>
-      {sessionList.length === 0 ? (
+      {/* Inactive / completed projects */}
+      {inactiveSessions.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-xs font-semibold text-base-muted uppercase tracking-wider mb-3">
+            Other Projects
+          </h2>
+          <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
+            {inactiveSessions.map((session) => (
+              <SessionCard key={session.id} session={session} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* No sessions */}
+      {sessionList.length === 0 && (
         <div className="text-center py-12">
           <p className="text-base-muted text-sm">No sessions discovered yet</p>
           <p className="text-base-muted/60 text-xs mt-1">
@@ -280,12 +284,6 @@ function Dashboard() {
               ? "Scanning workspaces..."
               : "Connect to your Coder instance to get started"}
           </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          {sessionList.map((session) => (
-            <SessionCard key={session.id} session={session} />
-          ))}
         </div>
       )}
 
@@ -297,28 +295,16 @@ function Dashboard() {
           </h2>
           <div className="space-y-1">
             {recentEvents.map((event, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-3 text-xs py-1.5 px-3 rounded bg-base-surface border border-base-border"
-              >
-                <span
-                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    event.type === "error"
-                      ? "bg-accent-red"
-                      : event.type === "milestone_complete"
-                        ? "bg-accent-green"
-                        : event.type === "rate_limit"
-                          ? "bg-accent-amber"
-                          : "bg-base-muted"
-                  }`}
-                />
-                <span className="text-base-muted">
-                  {new Date(event.timestamp).toLocaleTimeString()}
-                </span>
+              <div key={i} className="flex items-center gap-3 text-xs py-1.5 px-3 rounded bg-base-surface border border-base-border">
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                  event.type === "error" ? "bg-accent-red" :
+                  event.type === "milestone_complete" ? "bg-accent-green" :
+                  event.type === "rate_limit" ? "bg-accent-amber" :
+                  "bg-base-muted"
+                }`} />
+                <span className="text-base-muted">{new Date(event.timestamp).toLocaleTimeString()}</span>
                 <span className="text-base-text truncate">{event.message}</span>
-                <span className="ml-auto text-base-muted flex-shrink-0">
-                  {event.project}
-                </span>
+                <span className="ml-auto text-base-muted flex-shrink-0">{event.project}</span>
               </div>
             ))}
           </div>

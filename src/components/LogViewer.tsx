@@ -45,23 +45,28 @@ function LogViewer() {
 
     const allLogs: { project: string; entry: LogEntry }[] = [];
 
-    for (const ws of workspaces) {
-      for (const proj of ws.projects) {
-        try {
+    const results = await Promise.allSettled(
+      workspaces.flatMap((ws) =>
+        ws.projects.map(async (proj) => {
           const raw = await invoke<string>("exec_in_workspace", {
             workspace: ws.coderName,
             command: `tail -50 ~/${sanitizeShellArg(proj.path)}/.gsd/event-log.jsonl 2>/dev/null`,
           });
-          if (!raw || !raw.trim()) continue;
-
+          if (!raw || !raw.trim()) return;
           for (const line of raw.trim().split("\n")) {
             try {
               const entry: LogEntry = JSON.parse(line);
               allLogs.push({ project: `${ws.displayName} / ${proj.displayName}`, entry });
             } catch { /* skip invalid lines */ }
           }
-        } catch { /* project might not have event log */ }
-      }
+        })
+      )
+    );
+
+    // Log fetch failures for debugging
+    const failures = results.filter((r) => r.status === "rejected");
+    if (failures.length > 0) {
+      console.warn(`[LogViewer] ${failures.length} project(s) failed to fetch logs`);
     }
 
     // Sort by timestamp
@@ -72,10 +77,10 @@ function LogViewer() {
     setLoading(false);
   }, [workspaces, connection.status]);
 
-  // Fetch on mount and every 30 seconds
+  // Fetch on mount and every 10 seconds
   useEffect(() => {
     fetchLogs();
-    const interval = setInterval(fetchLogs, 30_000);
+    const interval = setInterval(fetchLogs, 10_000);
     return () => clearInterval(interval);
   }, [fetchLogs]);
 
@@ -174,7 +179,7 @@ function LogViewer() {
       {/* Footer */}
       <div className="px-4 py-1.5 border-t border-base-border bg-base-surface text-xs text-base-muted flex items-center justify-between">
         <span>{filteredLogs.length} events</span>
-        <span>Last 50 events per project · Updates every 30s</span>
+        <span>Last 50 events per project · Updates every 10s</span>
       </div>
     </div>
   );
