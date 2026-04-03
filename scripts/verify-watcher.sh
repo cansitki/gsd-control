@@ -89,8 +89,8 @@ check "liveFeed state variable in JS" grep -q 'let liveFeed' "$JS"
 # 18. /live command handling in pollUpdates
 check "/live command in pollUpdates" grep -q '/live' "$JS"
 
-# 19. setInterval for live feed timer
-check "setInterval for live feed" grep -q 'setInterval' "$JS"
+# 19. setTimeout for self-scheduling live feed loop
+check "setTimeout for live feed loop" grep -q 'setTimeout(tick' "$JS"
 
 # 20. HTML entity escaping (escapeHtml with &lt;)
 check "HTML entity escaping in JS" grep -q '&lt;' "$JS"
@@ -103,6 +103,32 @@ check "watcherScript.ts contains editMessageText" grep -q 'editMessageText' "$TS
 
 # 23. watcherScript.ts contains callback_query (sync check)
 check "watcherScript.ts contains callback_query" grep -q 'callback_query' "$TS"
+
+# ── /live session list + navigation checks ──────────────────────────────
+
+# 24. sendSessionList function exists
+check "sendSessionList function in JS" grep -q 'function sendSessionList' "$JS"
+
+# 25. live_select callback_data prefix in JS
+check "live_select callback_data in JS" grep -q 'live_select:' "$JS"
+
+# 26. live_sessions callback_data in JS
+check "live_sessions callback_data in JS" grep -q 'live_sessions' "$JS"
+
+# 27. LIVE_LOOP_DELAY_MS set to 500
+check "500ms loop delay configured" grep -q 'LIVE_LOOP_DELAY_MS = 500' "$JS"
+
+# 28. Sessions button in liveFeedButtons
+check "Sessions button in live feed" grep -q 'Sessions' "$JS"
+
+# 29. Self-scheduling tick function
+check "tick function for self-scheduling" grep -q 'async function tick' "$JS"
+
+# 30. watcherScript.ts contains sendSessionList (sync check)
+check "watcherScript.ts contains sendSessionList" grep -q 'sendSessionList' "$TS"
+
+# 31. watcherScript.ts contains live_select (sync check)
+check "watcherScript.ts contains live_select" grep -q 'live_select' "$TS"
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="

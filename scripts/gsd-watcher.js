@@ -140,10 +140,42 @@ function captureTmuxOutput(sessionName) {
 // ── Live Feed State ────────────────────────────────────────────────────
 
 const MAX_CONTENT_LEN = 4000; // 4096 limit minus header + <pre></pre> overhead
-const LIVE_INTERVAL_MS = 3000;
+const LIVE_LOOP_DELAY_MS = 500; // delay between edit-complete and next capture
 const MAX_CONSECUTIVE_FAILURES = 5;
 
-let liveFeed = null; // { project, session, messageId, intervalId, lastContent, failCount }
+let liveFeed = null; // { project, session, chatId, messageId, timerId, lastContent, failCount, stopped }
+
+function liveFeedButtons() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "⏹ Stop", callback_data: "live_stop" },
+        { text: "📋 Sessions", callback_data: "live_sessions" },
+      ],
+    ],
+  };
+}
+
+async function sendSessionList(chatId) {
+  const projects = findGSDProjects();
+  const sessions = [];
+  for (const proj of projects) {
+    const sess = findTmuxSession(proj.name);
+    if (sess) sessions.push({ name: proj.name, session: sess });
+  }
+  if (sessions.length === 0) {
+    await sendMessage("No active tmux sessions found.", chatId);
+    return;
+  }
+  const buttons = sessions.map((s) => [
+    { text: `📺 ${s.name}`, callback_data: `live_select:${s.name}` },
+  ]);
+  await sendMessageHTML(
+    "<b>Active Sessions</b>\nSelect a project to stream:",
+    chatId,
+    { inline_keyboard: buttons }
+  );
+}
 
 async function startLiveFeed(projectName, chatId) {
   // Stop any existing feed first (R038: one feed at a time)
@@ -188,11 +220,7 @@ async function startLiveFeed(projectName, chatId) {
   const header = `📺 <b>${escapeHtml(proj.name)}</b> — live`;
   const body = `${header}\n<pre>${escapeHtml(truncated)}</pre>`;
 
-  const stopButton = {
-    inline_keyboard: [[{ text: "⏹ Stop", callback_data: "live_stop" }]],
-  };
-
-  const res = await sendMessageHTML(body, chatId, stopButton);
+  const res = await sendMessageHTML(body, chatId, liveFeedButtons());
   if (!res.ok || !res.result) {
     await sendMessage("Failed to start live feed.", chatId);
     return;
@@ -203,15 +231,17 @@ async function startLiveFeed(projectName, chatId) {
   liveFeed = {
     project: proj.name,
     session,
+    chatId,
     messageId,
-    intervalId: null,
+    timerId: null,
     lastContent: truncated,
     failCount: 0,
+    stopped: false,
   };
 
-  // Start the update interval
-  liveFeed.intervalId = setInterval(async () => {
-    if (!liveFeed) return;
+  // Self-scheduling loop: capture → edit → wait for response → setTimeout(next)
+  async function tick() {
+    if (!liveFeed || liveFeed.stopped) return;
 
     const output = captureTmuxOutput(liveFeed.session);
     if (output === null) {
@@ -222,7 +252,9 @@ async function startLiveFeed(projectName, chatId) {
         const stopBody = `${stopHeader}\n<pre>${escapeHtml(liveFeed.lastContent || "")}</pre>`;
         await editMessageText(chatId, liveFeed.messageId, stopBody);
         stopLiveFeed();
+        return;
       }
+      liveFeed.timerId = setTimeout(tick, LIVE_LOOP_DELAY_MS);
       return;
     }
 
@@ -232,7 +264,10 @@ async function startLiveFeed(projectName, chatId) {
         : output;
 
     // Skip edit if content unchanged (avoids Telegram 400 'message is not modified')
-    if (trunc === liveFeed.lastContent) return;
+    if (trunc === liveFeed.lastContent) {
+      liveFeed.timerId = setTimeout(tick, LIVE_LOOP_DELAY_MS);
+      return;
+    }
 
     liveFeed.lastContent = trunc;
     const updHeader = `📺 <b>${escapeHtml(liveFeed.project)}</b> — live`;
@@ -242,7 +277,7 @@ async function startLiveFeed(projectName, chatId) {
       chatId,
       liveFeed.messageId,
       updBody,
-      stopButton
+      liveFeedButtons()
     );
     if (!editRes.ok) {
       liveFeed.failCount++;
@@ -253,21 +288,30 @@ async function startLiveFeed(projectName, chatId) {
       if (liveFeed.failCount >= MAX_CONSECUTIVE_FAILURES) {
         console.log("[watcher] live feed: too many edit failures, stopping");
         stopLiveFeed();
+        return;
       }
     } else {
       liveFeed.failCount = 0;
     }
-  }, LIVE_INTERVAL_MS);
+
+    if (liveFeed && !liveFeed.stopped) {
+      liveFeed.timerId = setTimeout(tick, LIVE_LOOP_DELAY_MS);
+    }
+  }
+
+  // Kick off the self-scheduling loop
+  liveFeed.timerId = setTimeout(tick, LIVE_LOOP_DELAY_MS);
 
   console.log(
-    `[watcher] live feed started: project=${proj.name} session=${session} msgId=${messageId}`
+    `[watcher] live feed started: project=${proj.name} session=${session} msgId=${messageId} delay=${LIVE_LOOP_DELAY_MS}ms`
   );
 }
 
 function stopLiveFeed() {
   if (!liveFeed) return;
-  if (liveFeed.intervalId) {
-    clearInterval(liveFeed.intervalId);
+  liveFeed.stopped = true;
+  if (liveFeed.timerId) {
+    clearTimeout(liveFeed.timerId);
   }
   console.log(`[watcher] live feed stopped: project=${liveFeed.project}`);
   liveFeed = null;
@@ -570,6 +614,22 @@ async function pollUpdates() {
           } else {
             await answerCallbackQuery(cb.id, "No active live feed");
           }
+        } else if (cb.data === "live_sessions") {
+          if (liveFeed) {
+            const project = liveFeed.project;
+            const msgId = liveFeed.messageId;
+            const lastOut = liveFeed.lastContent || "";
+            stopLiveFeed();
+            const stopHeader = `📺 <b>${escapeHtml(project)}</b> — stopped`;
+            const stopBody = `${stopHeader}\n<pre>${escapeHtml(lastOut)}</pre>`;
+            await editMessageText(cbChatId, msgId, stopBody);
+          }
+          await answerCallbackQuery(cb.id);
+          await sendSessionList(cbChatId);
+        } else if (cb.data.startsWith("live_select:")) {
+          const projectName = cb.data.slice("live_select:".length);
+          await answerCallbackQuery(cb.id, `Starting ${projectName}...`);
+          await startLiveFeed(projectName, cbChatId);
         }
         continue;
       }
@@ -617,11 +677,12 @@ async function pollUpdates() {
           await startLiveFeed(projectArg, chatId);
         }
       } else if (textLower === "/live" || textLower === `/live@${botName}`) {
-        await sendMessage("Usage: /live <project> or /live stop", chatId);
+        await sendSessionList(chatId);
       } else if (textLower === "/help" || textLower === `/help@${botName}`) {
         await sendMessage(
           `*GSD Watcher — ${WORKSPACE}*\n\n` +
             `/status — Show all project statuses\n` +
+            `/live — Show active sessions to stream\n` +
             `/live <project> — Stream tmux output live\n` +
             `/live stop — Stop the live feed\n` +
             `/help — Show this message`,

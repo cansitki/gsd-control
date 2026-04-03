@@ -103,7 +103,7 @@ function readFileOrNull(filePath) {
 // ── Terminal Capture ────────────────────────────────────────────────────
 
 function stripAnsi(str) {
-  return str.replace(/\\x1B\\[[0-9;]*[a-zA-Z]/g, "");
+  return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "");
 }
 
 function escapeHtml(str) {
@@ -116,7 +116,7 @@ function findTmuxSession(projectName) {
       "tmux list-sessions -F '#{session_name}' 2>/dev/null",
       { encoding: "utf-8", timeout: 3000 }
     );
-    const sessions = result.trim().split("\\n").filter(Boolean);
+    const sessions = result.trim().split("\n").filter(Boolean);
     // Exact match first, then substring match
     const exact = sessions.find((s) => s === projectName);
     if (exact) return exact;
@@ -142,10 +142,42 @@ function captureTmuxOutput(sessionName) {
 // ── Live Feed State ────────────────────────────────────────────────────
 
 const MAX_CONTENT_LEN = 4000; // 4096 limit minus header + <pre></pre> overhead
-const LIVE_INTERVAL_MS = 3000;
+const LIVE_LOOP_DELAY_MS = 500; // delay between edit-complete and next capture
 const MAX_CONSECUTIVE_FAILURES = 5;
 
-let liveFeed = null; // { project, session, messageId, intervalId, lastContent, failCount }
+let liveFeed = null; // { project, session, chatId, messageId, timerId, lastContent, failCount, stopped }
+
+function liveFeedButtons() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "⏹ Stop", callback_data: "live_stop" },
+        { text: "📋 Sessions", callback_data: "live_sessions" },
+      ],
+    ],
+  };
+}
+
+async function sendSessionList(chatId) {
+  const projects = findGSDProjects();
+  const sessions = [];
+  for (const proj of projects) {
+    const sess = findTmuxSession(proj.name);
+    if (sess) sessions.push({ name: proj.name, session: sess });
+  }
+  if (sessions.length === 0) {
+    await sendMessage("No active tmux sessions found.", chatId);
+    return;
+  }
+  const buttons = sessions.map((s) => [
+    { text: \`📺 \${s.name}\`, callback_data: \`live_select:\${s.name}\` },
+  ]);
+  await sendMessageHTML(
+    "<b>Active Sessions</b>\nSelect a project to stream:",
+    chatId,
+    { inline_keyboard: buttons }
+  );
+}
 
 async function startLiveFeed(projectName, chatId) {
   // Stop any existing feed first (R038: one feed at a time)
@@ -160,7 +192,7 @@ async function startLiveFeed(projectName, chatId) {
   );
   if (!proj) {
     await sendMessage(
-      \`No GSD project "\${projectName}" found.\\nKnown: \${projects.map((p) => p.name).join(", ") || "none"}\`,
+      \`No GSD project "\${projectName}" found.\nKnown: \${projects.map((p) => p.name).join(", ") || "none"}\`,
       chatId
     );
     return;
@@ -188,13 +220,9 @@ async function startLiveFeed(projectName, chatId) {
       ? content.slice(content.length - MAX_CONTENT_LEN)
       : content;
   const header = \`📺 <b>\${escapeHtml(proj.name)}</b> — live\`;
-  const body = \`\${header}\\n<pre>\${escapeHtml(truncated)}</pre>\`;
+  const body = \`\${header}\n<pre>\${escapeHtml(truncated)}</pre>\`;
 
-  const stopButton = {
-    inline_keyboard: [[{ text: "⏹ Stop", callback_data: "live_stop" }]],
-  };
-
-  const res = await sendMessageHTML(body, chatId, stopButton);
+  const res = await sendMessageHTML(body, chatId, liveFeedButtons());
   if (!res.ok || !res.result) {
     await sendMessage("Failed to start live feed.", chatId);
     return;
@@ -205,15 +233,17 @@ async function startLiveFeed(projectName, chatId) {
   liveFeed = {
     project: proj.name,
     session,
+    chatId,
     messageId,
-    intervalId: null,
+    timerId: null,
     lastContent: truncated,
     failCount: 0,
+    stopped: false,
   };
 
-  // Start the update interval
-  liveFeed.intervalId = setInterval(async () => {
-    if (!liveFeed) return;
+  // Self-scheduling loop: capture → edit → wait for response → setTimeout(next)
+  async function tick() {
+    if (!liveFeed || liveFeed.stopped) return;
 
     const output = captureTmuxOutput(liveFeed.session);
     if (output === null) {
@@ -221,10 +251,12 @@ async function startLiveFeed(projectName, chatId) {
       if (liveFeed.failCount >= MAX_CONSECUTIVE_FAILURES) {
         console.log("[watcher] live feed: too many capture failures, stopping");
         const stopHeader = \`📺 <b>\${escapeHtml(liveFeed.project)}</b> — stopped (capture failed)\`;
-        const stopBody = \`\${stopHeader}\\n<pre>\${escapeHtml(liveFeed.lastContent || "")}</pre>\`;
+        const stopBody = \`\${stopHeader}\n<pre>\${escapeHtml(liveFeed.lastContent || "")}</pre>\`;
         await editMessageText(chatId, liveFeed.messageId, stopBody);
         stopLiveFeed();
+        return;
       }
+      liveFeed.timerId = setTimeout(tick, LIVE_LOOP_DELAY_MS);
       return;
     }
 
@@ -234,17 +266,20 @@ async function startLiveFeed(projectName, chatId) {
         : output;
 
     // Skip edit if content unchanged (avoids Telegram 400 'message is not modified')
-    if (trunc === liveFeed.lastContent) return;
+    if (trunc === liveFeed.lastContent) {
+      liveFeed.timerId = setTimeout(tick, LIVE_LOOP_DELAY_MS);
+      return;
+    }
 
     liveFeed.lastContent = trunc;
     const updHeader = \`📺 <b>\${escapeHtml(liveFeed.project)}</b> — live\`;
-    const updBody = \`\${updHeader}\\n<pre>\${escapeHtml(trunc)}</pre>\`;
+    const updBody = \`\${updHeader}\n<pre>\${escapeHtml(trunc)}</pre>\`;
 
     const editRes = await editMessageText(
       chatId,
       liveFeed.messageId,
       updBody,
-      stopButton
+      liveFeedButtons()
     );
     if (!editRes.ok) {
       liveFeed.failCount++;
@@ -255,21 +290,30 @@ async function startLiveFeed(projectName, chatId) {
       if (liveFeed.failCount >= MAX_CONSECUTIVE_FAILURES) {
         console.log("[watcher] live feed: too many edit failures, stopping");
         stopLiveFeed();
+        return;
       }
     } else {
       liveFeed.failCount = 0;
     }
-  }, LIVE_INTERVAL_MS);
+
+    if (liveFeed && !liveFeed.stopped) {
+      liveFeed.timerId = setTimeout(tick, LIVE_LOOP_DELAY_MS);
+    }
+  }
+
+  // Kick off the self-scheduling loop
+  liveFeed.timerId = setTimeout(tick, LIVE_LOOP_DELAY_MS);
 
   console.log(
-    \`[watcher] live feed started: project=\${proj.name} session=\${session} msgId=\${messageId}\`
+    \`[watcher] live feed started: project=\${proj.name} session=\${session} msgId=\${messageId} delay=\${LIVE_LOOP_DELAY_MS}ms\`
   );
 }
 
 function stopLiveFeed() {
   if (!liveFeed) return;
-  if (liveFeed.intervalId) {
-    clearInterval(liveFeed.intervalId);
+  liveFeed.stopped = true;
+  if (liveFeed.timerId) {
+    clearTimeout(liveFeed.timerId);
   }
   console.log(\`[watcher] live feed stopped: project=\${liveFeed.project}\`);
   liveFeed = null;
@@ -285,7 +329,7 @@ function findGSDProjects() {
     );
     return result
       .trim()
-      .split("\\n")
+      .split("\n")
       .filter((l) => l && l !== "/home/coder/.gsd")
       .map((gsdPath) => {
         const projectDir = path.dirname(gsdPath);
@@ -305,23 +349,23 @@ function parseStateMd(content) {
   if (!content) return null;
   const info = {};
 
-  const milestoneMatch = content.match(/\\*\\*Active Milestone:\\*\\*\\s*(.+)/);
-  const sliceMatch = content.match(/\\*\\*Active Slice:\\*\\*\\s*(.+)/);
-  const phaseMatch = content.match(/\\*\\*Phase:\\*\\*\\s*(.+)/);
-  const reqMatch = content.match(/\\*\\*Requirements Status:\\*\\*\\s*(.+)/);
-  const nextMatch = content.match(/## Next Action\\n([\\s\\S]*?)(?:\\n##|$)/);
+  const milestoneMatch = content.match(/\*\*Active Milestone:\*\*\s*(.+)/);
+  const sliceMatch = content.match(/\*\*Active Slice:\*\*\s*(.+)/);
+  const phaseMatch = content.match(/\*\*Phase:\*\*\s*(.+)/);
+  const reqMatch = content.match(/\*\*Requirements Status:\*\*\s*(.+)/);
+  const nextMatch = content.match(/## Next Action\n([\s\S]*?)(?:\n##|$)/);
 
   if (milestoneMatch) info.milestone = milestoneMatch[1].trim();
   if (sliceMatch) info.slice = sliceMatch[1].trim();
   if (phaseMatch) info.phase = phaseMatch[1].trim();
   if (reqMatch) info.requirements = reqMatch[1].trim();
-  if (nextMatch) info.nextAction = nextMatch[1].trim().split("\\n")[0];
+  if (nextMatch) info.nextAction = nextMatch[1].trim().split("\n")[0];
 
   const completedMs = (content.match(/^- ✅/gm) || []).length;
   const activeMs = (content.match(/^- 🔄/gm) || []).length;
   info.milestoneProgress = { completed: completedMs, active: activeMs };
 
-  const blockerSection = content.match(/## Blockers\\n([\\s\\S]*?)(?:\\n##|$)/);
+  const blockerSection = content.match(/## Blockers\n([\s\S]*?)(?:\n##|$)/);
   if (blockerSection) {
     const blockerText = blockerSection[1].trim();
     if (blockerText && blockerText !== "- None") {
@@ -356,7 +400,7 @@ function getGSDAutoStatus(projectName, gsdDir) {
       "tmux list-sessions -F '#{session_name}' 2>/dev/null || true",
       { encoding: "utf-8", timeout: 3000 }
     );
-    const sessions = result.trim().split("\\n").filter(Boolean);
+    const sessions = result.trim().split("\n").filter(Boolean);
     const hasSession = sessions.some(
       (s) => s.includes(projectName) || s.includes("gsd-auto")
     );
@@ -384,7 +428,7 @@ function buildLocalStatus() {
   const projects = findGSDProjects();
 
   if (projects.length === 0) {
-    return \`*\${WORKSPACE}*\\n\\nNo GSD projects found.\`;
+    return \`*\${WORKSPACE}*\n\nNo GSD projects found.\`;
   }
 
   // Collect project tuples with computed state
@@ -406,7 +450,7 @@ function buildLocalStatus() {
   const hasOffline = entries.some((e) => !e.isRunning);
   const showGroups = hasActive && hasOffline;
 
-  let msg = \`*\${WORKSPACE}*\\n\`;
+  let msg = \`*\${WORKSPACE}*\n\`;
   let activeHeaderDone = false;
   let offlineHeaderDone = false;
 
@@ -415,16 +459,16 @@ function buildLocalStatus() {
 
     // Insert group headers when both groups exist
     if (showGroups && isRunning && !activeHeaderDone) {
-      msg += \`\\n── Active ──\\n\`;
+      msg += \`\n── Active ──\n\`;
       activeHeaderDone = true;
     }
     if (showGroups && !isRunning && !offlineHeaderDone) {
-      msg += \`\\n── Offline ──\\n\`;
+      msg += \`\n── Offline ──\n\`;
       offlineHeaderDone = true;
     }
 
     const dot = isRunning ? "●" : "○";
-    msg += \`\\n\${dot} *\${proj.name}*\`;
+    msg += \`\n\${dot} *\${proj.name}*\`;
 
     // Detect quick task vs milestone from auto.lock unitId
     if (isRunning && auto.unit) {
@@ -432,18 +476,18 @@ function buildLocalStatus() {
         msg += \` — quick task\`;
       }
     }
-    msg += "\\n";
+    msg += "\n";
 
     if (state) {
       // Milestone or quick — show what they're working on
       if (state.milestone) {
         msg += \`  \${state.milestone}\`;
         if (state.slice) msg += \` / \${state.slice}\`;
-        msg += "\\n";
+        msg += "\n";
       }
-      if (state.phase) msg += \`  Phase: \${state.phase}\\n\`;
-      if (state.nextAction) msg += \`  \${state.nextAction}\\n\`;
-      if (state.blockers) msg += \`  *Blocker:* \${state.blockers}\\n\`;
+      if (state.phase) msg += \`  Phase: \${state.phase}\n\`;
+      if (state.nextAction) msg += \`  \${state.nextAction}\n\`;
+      if (state.blockers) msg += \`  *Blocker:* \${state.blockers}\n\`;
     }
   }
 
@@ -470,17 +514,17 @@ function buildStatusMessage() {
     );
 
     if (otherWorkspaces.length > 0) {
-      let otherMsg = stale ? \`\\n\\n*Other Workspaces* _(\${ageLabel})_\` : \`\\n\\n*Other Workspaces*\`;
+      let otherMsg = stale ? \`\n\n*Other Workspaces* _(\${ageLabel})_\` : \`\n\n*Other Workspaces*\`;
 
       for (let i = 0; i < otherWorkspaces.length; i++) {
         const ws = otherWorkspaces[i];
 
         // Em-dash separator between workspace sections (not before the first)
         if (i > 0) {
-          otherMsg += \`\\n———————————\`;
+          otherMsg += \`\n———————————\`;
         }
 
-        otherMsg += \`\\n\\n*\${ws.name}*\`;
+        otherMsg += \`\n\n*\${ws.name}*\`;
 
         // Sort projects: active first, then alphabetical
         const sorted = [...ws.projects].sort((a, b) => {
@@ -500,23 +544,23 @@ function buildStatusMessage() {
           const isActive = proj.isRunning || proj.autoMode;
 
           if (wsShowGroups && isActive && !wsActiveHeaderDone) {
-            otherMsg += \`\\n── Active ──\`;
+            otherMsg += \`\n── Active ──\`;
             wsActiveHeaderDone = true;
           }
           if (wsShowGroups && !isActive && !wsOfflineHeaderDone) {
-            otherMsg += \`\\n── Offline ──\`;
+            otherMsg += \`\n── Offline ──\`;
             wsOfflineHeaderDone = true;
           }
 
           const dot = isActive ? "●" : "○";
-          otherMsg += \`\\n\${dot} *\${proj.name}*\\n\`;
+          otherMsg += \`\n\${dot} *\${proj.name}*\n\`;
           if (proj.milestone) {
             otherMsg += \`  \${proj.milestone}\`;
             if (proj.slice) otherMsg += \` / \${proj.slice}\`;
-            otherMsg += "\\n";
+            otherMsg += "\n";
           }
-          if (proj.phase) otherMsg += \`  Phase: \${proj.phase}\\n\`;
-          if (proj.nextAction) otherMsg += \`  \${proj.nextAction}\\n\`;
+          if (proj.phase) otherMsg += \`  Phase: \${proj.phase}\n\`;
+          if (proj.nextAction) otherMsg += \`  \${proj.nextAction}\n\`;
         }
       }
       return localMsg + otherMsg;
@@ -566,12 +610,28 @@ async function pollUpdates() {
             const lastOut = liveFeed.lastContent || "";
             stopLiveFeed();
             const stopHeader = \`📺 <b>\${escapeHtml(project)}</b> — stopped\`;
-            const stopBody = \`\${stopHeader}\\n<pre>\${escapeHtml(lastOut)}</pre>\`;
+            const stopBody = \`\${stopHeader}\n<pre>\${escapeHtml(lastOut)}</pre>\`;
             await editMessageText(cbChatId, msgId, stopBody);
             await answerCallbackQuery(cb.id, "Live feed stopped");
           } else {
             await answerCallbackQuery(cb.id, "No active live feed");
           }
+        } else if (cb.data === "live_sessions") {
+          if (liveFeed) {
+            const project = liveFeed.project;
+            const msgId = liveFeed.messageId;
+            const lastOut = liveFeed.lastContent || "";
+            stopLiveFeed();
+            const stopHeader = \`📺 <b>\${escapeHtml(project)}</b> — stopped\`;
+            const stopBody = \`\${stopHeader}\n<pre>\${escapeHtml(lastOut)}</pre>\`;
+            await editMessageText(cbChatId, msgId, stopBody);
+          }
+          await answerCallbackQuery(cb.id);
+          await sendSessionList(cbChatId);
+        } else if (cb.data.startsWith("live_select:")) {
+          const projectName = cb.data.slice("live_select:".length);
+          await answerCallbackQuery(cb.id, \`Starting \${projectName}...\`);
+          await startLiveFeed(projectName, cbChatId);
         }
         continue;
       }
@@ -600,7 +660,7 @@ async function pollUpdates() {
           const lastOut = liveFeed.lastContent || "";
           stopLiveFeed();
           const stopHeader = \`📺 <b>\${escapeHtml(project)}</b> — stopped\`;
-          const stopBody = \`\${stopHeader}\\n<pre>\${escapeHtml(lastOut)}</pre>\`;
+          const stopBody = \`\${stopHeader}\n<pre>\${escapeHtml(lastOut)}</pre>\`;
           await editMessageText(chatId, msgId, stopBody);
           await sendMessage(\`Live feed stopped for *\${project}*.\`, chatId);
         } else {
@@ -611,7 +671,7 @@ async function pollUpdates() {
         textLower.startsWith(\`/live@\${botName} \`)
       ) {
         // Extract project name from /live <project>
-        const parts = text.split(/\\s+/);
+        const parts = text.split(/\s+/);
         const projectArg = parts.length > 1 ? parts.slice(1).join(" ") : "";
         if (!projectArg) {
           await sendMessage("Usage: /live <project> or /live stop", chatId);
@@ -619,13 +679,14 @@ async function pollUpdates() {
           await startLiveFeed(projectArg, chatId);
         }
       } else if (textLower === "/live" || textLower === \`/live@\${botName}\`) {
-        await sendMessage("Usage: /live <project> or /live stop", chatId);
+        await sendSessionList(chatId);
       } else if (textLower === "/help" || textLower === \`/help@\${botName}\`) {
         await sendMessage(
-          \`*GSD Watcher — \${WORKSPACE}*\\n\\n\` +
-            \`/status — Show all project statuses\\n\` +
-            \`/live <project> — Stream tmux output live\\n\` +
-            \`/live stop — Stop the live feed\\n\` +
+          \`*GSD Watcher — \${WORKSPACE}*\n\n\` +
+            \`/status — Show all project statuses\n\` +
+            \`/live — Show active sessions to stream\n\` +
+            \`/live <project> — Stream tmux output live\n\` +
+            \`/live stop — Stop the live feed\n\` +
             \`/help — Show this message\`,
           chatId
         );
@@ -655,7 +716,7 @@ function checkForGSDEvents() {
         const state = parseStateMd(content);
         if (state && state.phase === "complete") {
           sendMessage(
-            \`*\${proj.name}* on *\${WORKSPACE}*\\nMilestone complete: \${state.milestone || "?"}\`
+            \`*\${proj.name}* on *\${WORKSPACE}*\nMilestone complete: \${state.milestone || "?"}\`
           );
         }
       }
@@ -674,7 +735,7 @@ async function main() {
   console.log(\`[gsd-watcher] Chat ID: \${CHAT_ID}\`);
 
   await sendMessage(
-    \`*GSD Watcher started* on *\${WORKSPACE}*\\nSend /status for project info.\`
+    \`*GSD Watcher started* on *\${WORKSPACE}*\nSend /status for project info.\`
   );
 
   while (true) {
