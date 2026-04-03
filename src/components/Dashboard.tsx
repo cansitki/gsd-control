@@ -161,7 +161,7 @@ function Dashboard() {
       <div className="grid grid-cols-4 gap-4 mb-3">
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
           <p className="text-xs text-base-muted uppercase tracking-wider">Total Cost</p>
-          <p className="text-2xl font-bold text-accent-amber mt-1">${costHistory.stats.totalCost.toFixed(2)}</p>
+          <p className="text-2xl font-bold text-accent-amber mt-1">${costHistory.stats.allTimeCost.toFixed(2)}</p>
         </div>
         <div className="bg-base-surface border border-base-border rounded-lg p-4">
           <p className="text-xs text-base-muted uppercase tracking-wider">Today's Cost</p>

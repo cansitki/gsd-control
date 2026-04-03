@@ -14,6 +14,7 @@ export interface CostDataPoint {
 
 export interface CostStats {
   totalCost: number;
+  allTimeCost: number;
   dailyAverage: number;
   totalMessages: number;
   totalInput: number;
@@ -118,6 +119,7 @@ function filterSummaryByRange(
   let interactiveCount = 0;
   const allMilestones: MilestoneBreakdown[] = [];
   let todayCost = 0;
+  let allTimeCost = 0;
 
   for (const summary of summaries) {
     sessionCount += summary.sessionCount;
@@ -125,10 +127,16 @@ function filterSummaryByRange(
     interactiveCount += summary.interactiveCount;
     allMilestones.push(...summary.milestones);
 
+    // Accumulate model costs (always, regardless of date range)
+    for (const [model, cost] of Object.entries(summary.models)) {
+      models[model] = (models[model] ?? 0) + cost;
+    }
+
     for (const day of summary.daily) {
       const inRange = isAllTime || dateRange.includes(day.date);
 
-      // Always compute today's cost regardless of range
+      // Always compute today's cost and all-time cost regardless of range
+      allTimeCost += day.cost;
       if (day.date === todayStr) {
         todayCost += day.cost;
       }
@@ -159,22 +167,6 @@ function filterSummaryByRange(
 
     // totalTokens from summary (all-time value)
     totalTokens += summary.totalTokens;
-
-    // Accumulate model costs (all-time for all range, approximate for filtered)
-    if (isAllTime) {
-      for (const [model, cost] of Object.entries(summary.models)) {
-        models[model] = (models[model] ?? 0) + cost;
-      }
-    }
-  }
-
-  // For non-all-time, derive model costs from the totals
-  if (!isAllTime) {
-    for (const summary of summaries) {
-      for (const model of Object.keys(summary.models)) {
-        if (!(model in models)) models[model] = 0;
-      }
-    }
   }
 
   const activeDays = activeDateSet.size;
@@ -227,6 +219,7 @@ function filterSummaryByRange(
     points: filledPoints,
     stats: {
       totalCost,
+      allTimeCost,
       dailyAverage,
       totalMessages,
       totalInput,

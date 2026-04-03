@@ -176,6 +176,69 @@ function phaseEmoji(phase) {
   return "🔄";
 }
 
+// ── Cost Scanner (reads session logs directly) ─────────────────────────
+
+function scanProjectCost(projectDir) {
+  // Read ~/.gsd/sessions/{cwd-encoded}/*.jsonl — same source as costAggregator.ts
+  try {
+    const home = process.env.HOME || "/home/coder";
+    const sessionsDir = path.join(home, ".gsd", "sessions");
+    if (!fs.existsSync(sessionsDir)) return null;
+
+    // Encode project path as session directory name (K032)
+    const cwdEncoded = "--" + projectDir.replace(/^\\//, "").replace(/\\//g, "-") + "--";
+    const sessionPath = path.join(sessionsDir, cwdEncoded);
+
+    // Collect session dirs: main + worktree dirs
+    const worktreePrefix = cwdEncoded.replace(/-+$/, "") + "-.gsd-worktrees-";
+    const allSessionDirs = [];
+    if (fs.existsSync(sessionPath)) allSessionDirs.push(sessionPath);
+    try {
+      for (const d of fs.readdirSync(sessionsDir)) {
+        if (d.startsWith(worktreePrefix)) {
+          const full = path.join(sessionsDir, d);
+          if (fs.statSync(full).isDirectory()) allSessionDirs.push(full);
+        }
+      }
+    } catch {}
+
+    if (allSessionDirs.length === 0) return null;
+
+    let totalCost = 0;
+    let todayCost = 0;
+    const today = new Date().toISOString().slice(0, 10);
+
+    for (const sdir of allSessionDirs) {
+      let files;
+      try { files = fs.readdirSync(sdir).filter(f => f.endsWith(".jsonl")).sort(); }
+      catch { continue; }
+
+      for (const file of files) {
+        try {
+          const content = fs.readFileSync(path.join(sdir, file), "utf-8");
+          for (const line of content.split("\\n")) {
+            if (!line) continue;
+            let obj;
+            try { obj = JSON.parse(line); } catch { continue; }
+            if (obj.type !== "message") continue;
+            const usage = obj.message?.usage;
+            if (!usage?.cost?.total || usage.cost.total <= 0) continue;
+            const c = usage.cost.total;
+            totalCost += c;
+            const ts = obj.timestamp || "";
+            if (ts.startsWith(today)) todayCost += c;
+          }
+        } catch { continue; }
+      }
+    }
+
+    if (totalCost === 0) return null;
+    return { totalCost, todayCost };
+  } catch {
+    return null;
+  }
+}
+
 // ── Status: snapshot-based (all workspaces from app) ───────────────────
 
 function readSnapshot() {
@@ -261,6 +324,14 @@ function buildLocalStatus() {
       if (state.blockers)
         msg += \`  🚨 *Blocker:* \${state.blockers}\\n\`;
     }
+
+    // Live cost from session logs (works without the app)
+    const cost = scanProjectCost(proj.dir);
+    if (cost) {
+      msg += \`  💰 $\${cost.totalCost.toFixed(2)}\`;
+      if (cost.todayCost > 0) msg += \` _(today: $\${cost.todayCost.toFixed(2)})_\`;
+      msg += "\\n";
+    }
   }
 
   return msg.trim();
@@ -269,33 +340,49 @@ function buildLocalStatus() {
 // ── Status Command (snapshot first, local fallback) ────────────────────
 
 function buildStatusMessage() {
-  // Prefer snapshot from the app (has all workspaces)
+  // Always start with live local data for THIS workspace
+  const localMsg = buildLocalStatus();
+
+  // If snapshot exists and is fresh, add OTHER workspaces from it
   const snapshot = readSnapshot();
   if (snapshot && (Date.now() - snapshot.timestamp) < 3600000) {
-    // Snapshot is less than 1 hour old — use it
-    // Also append fresh local data for THIS workspace (more current than snapshot)
-    let msg = buildSnapshotStatus(snapshot);
+    const age = Date.now() - snapshot.timestamp;
+    const ageMins = Math.floor(age / 60000);
+    const stale = ageMins > 5;
+    const ageLabel = ageMins < 1 ? "just now" : ageMins < 60 ? \`\${ageMins}m ago\` : \`\${Math.floor(ageMins / 60)}h \${ageMins % 60}m ago\`;
 
-    // Add local auto.lock data that the snapshot may not have
-    const projects = findGSDProjects();
-    for (const proj of projects) {
-      const auto = getGSDAutoStatus(proj.name, proj.gsdDir);
-      if (auto.status === "running" && auto.unit) {
-        // Check if snapshot already shows this project as running
-        const snapshotProj = snapshot.workspaces
-          .flatMap((ws) => ws.projects)
-          .find((p) => p.name === proj.name || p.path?.includes(proj.name));
-        if (snapshotProj && !snapshotProj.autoMode) {
-          msg += \`\\n\\n_⚡ Live: \${proj.name} auto-mode on \${auto.unit}_\`;
+    // Find other workspaces in the snapshot (not this one)
+    const otherWorkspaces = snapshot.workspaces.filter(
+      (ws) => ws.name !== WORKSPACE && ws.coderName !== WORKSPACE
+    );
+
+    if (otherWorkspaces.length > 0) {
+      let otherMsg = \`\\n\\n📡 *Other Workspaces*\`;
+      if (stale) otherMsg += \` ⚠️ _stale (\${ageLabel})_\`;
+      else otherMsg += \` _(\${ageLabel})_\`;
+
+      for (const ws of otherWorkspaces) {
+        otherMsg += \`\\n\\n🖥 *\${ws.name}*\`;
+        for (const proj of ws.projects) {
+          const runIcon = proj.isRunning || proj.autoMode ? "🟢" : "⚫";
+          otherMsg += \`\\n\${runIcon} *\${proj.name}*\\n\`;
+          if (proj.milestone) {
+            const progress = proj.milestonesTotal
+              ? \` (\${proj.milestonesDone}/\${proj.milestonesTotal})\`
+              : "";
+            otherMsg += \`  📌 \${proj.milestone}\${progress}\\n\`;
+          }
+          if (proj.slice) otherMsg += \`  🔹 \${proj.slice}\\n\`;
+          if (proj.phase) otherMsg += \`  \${phaseEmoji(proj.phase)} Phase: \${proj.phase}\\n\`;
+          if (proj.cost) otherMsg += \`  💰 $\${proj.cost.toFixed(2)}\\n\`;
+          if (proj.nextAction) otherMsg += \`  ➡️ _\${proj.nextAction}_\\n\`;
         }
       }
+      return localMsg + otherMsg;
     }
-
-    return msg;
   }
 
-  // No snapshot or too old — fall back to local-only
-  return buildLocalStatus();
+  return localMsg;
 }
 
 // ── Command Polling ────────────────────────────────────────────────────
