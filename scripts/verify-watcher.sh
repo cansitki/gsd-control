@@ -63,6 +63,47 @@ check "watcherScript.ts contains Active label" grep -q '── Active ──' "$
 # 10. TypeScript compilation clean
 check "tsc --noEmit clean" node "$PROJECT_DIR/node_modules/typescript/lib/tsc.js" --noEmit
 
+# ── /live terminal feed checks ──────────────────────────────────────────
+
+# 11. editMessageText function exists in JS
+check "editMessageText function in JS" grep -q 'function editMessageText' "$JS"
+
+# 12. answerCallbackQuery function exists in JS
+check "answerCallbackQuery function in JS" grep -q 'function answerCallbackQuery' "$JS"
+
+# 13. callback_query in allowed_updates array
+check "callback_query in allowed_updates" grep -q 'callback_query' "$JS"
+
+# 14. capture-pane command in JS
+check "capture-pane tmux command in JS" grep -q 'capture-pane' "$JS"
+
+# 15. stripAnsi function exists in JS
+check "stripAnsi function in JS" grep -q 'function stripAnsi' "$JS"
+
+# 16. inline_keyboard in JS (Stop button)
+check "inline_keyboard Stop button in JS" grep -q 'inline_keyboard' "$JS"
+
+# 17. liveFeed state variable in JS
+check "liveFeed state variable in JS" grep -q 'let liveFeed' "$JS"
+
+# 18. /live command handling in pollUpdates
+check "/live command in pollUpdates" grep -q '/live' "$JS"
+
+# 19. setInterval for live feed timer
+check "setInterval for live feed" grep -q 'setInterval' "$JS"
+
+# 20. HTML entity escaping (escapeHtml with &lt;)
+check "HTML entity escaping in JS" grep -q '&lt;' "$JS"
+
+# 21. parse_mode HTML in JS
+check "parse_mode HTML in JS" grep -q 'parse_mode.*HTML' "$JS"
+
+# 22. watcherScript.ts contains editMessageText (sync check)
+check "watcherScript.ts contains editMessageText" grep -q 'editMessageText' "$TS"
+
+# 23. watcherScript.ts contains callback_query (sync check)
+check "watcherScript.ts contains callback_query" grep -q 'callback_query' "$TS"
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 
