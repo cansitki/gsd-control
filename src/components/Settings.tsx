@@ -148,7 +148,11 @@ function Settings() {
     const primaryWs = workspaces[0];
     setDeployStatus(`Deploying watcher to ${primaryWs.displayName}...`);
     try {
-      const scriptB64 = btoa(WATCHER_SCRIPT);
+      // btoa() only handles Latin1 — use TextEncoder for UTF-8 emoji/unicode
+      const utf8Bytes = new TextEncoder().encode(WATCHER_SCRIPT);
+      let binary = "";
+      for (const byte of utf8Bytes) binary += String.fromCharCode(byte);
+      const scriptB64 = btoa(binary);
       const wsName = primaryWs.displayName;
       await invoke("exec_in_workspace", {
         workspace: primaryWs.coderName,
