@@ -1,0 +1,1 @@
+/home/coder/obsidian-gsd-control/main.ts
